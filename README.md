@@ -3,7 +3,7 @@ rpg_dvs_ros
 
 # Disclaimer
 
-The github repo is originally cloned from [rpg-dvs_ros](https://github.com/uzh-rpg/rpg_dvs_ros) which is contributed by the authors Elias Mueggler, Basil Huber, Luca Longinotti, Tobi Delbruck. Code has been modified for the purpose of my current project.
+The github repo is originally cloned from [rpg-dvs_ros](https://github.com/uzh-rpg/rpg_dvs_ros) which is contributed by the authors: Elias Mueggler, Basil Huber, Luca Longinotti, Tobi Delbruck. Code has been modified for the purpose of my current project.
 
 
 
