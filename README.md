@@ -3,13 +3,13 @@ rpg_dvs_ros
 
 # Disclaimer
 
-The github repo is originally cloned from [rpg-dvs_ros](https://github.com/uzh-rpg/rpg_dvs_ros) which is contributed by the authors: Elias Mueggler, Basil Huber, Luca Longinotti, Tobi Delbruck. Code has been modified for the purpose of my current project.
+The github repo is originally cloned from [rpg-dvs_ros](https://github.com/uzh-rpg/rpg_dvs_ros) which is contributed by the authors: Elias Mueggler, Basil Huber, Luca Longinotti, Tobi Delbruck. Code has been used/modified for the purpose of my current project.
 
 
 
 # Driver Installation
 
-NOTE: substitute any mention of kinetic in the following instruction with the name of your current ROS distribution.
+NOTE: substitute any mention of melodic in the following instruction with the name of your current ROS distribution.
 
 1. Install ROS dependencies:
 *   `$ sudo apt-get install ros-melodic-camera-info-manager`
