@@ -285,7 +285,7 @@ void DvxplorerRosDriver::readout() {
 	dvs_msgs::EventArrayPtr event_array_msg;
 
         int initEvents = 0; // extra line
-	const int netEvents = 10000;
+	const int netEvents = 5000;
 
 	while (running_) {
 		try {
@@ -316,9 +316,10 @@ void DvxplorerRosDriver::readout() {
 					caerPolarityEventPacket polarity = (caerPolarityEventPacket) packetHeader;
 
 					const int numEvents = caerEventPacketHeaderGetEventNumber(packetHeader);
+                                        int count = 0;
                                         initEvents += numEvents;
                                         if (netEvents >= initEvents){
-                                        
+                                        	count = numEvents;
 						for (int j = 0; j < numEvents; j++) {
 							// Get full timestamp and addresses of first event.
 							caerPolarityEvent event = caerPolarityEventPacketGetEvent(polarity, j);
@@ -339,6 +340,7 @@ void DvxplorerRosDriver::readout() {
                                         }
 					if (netEvents < initEvents){
                                                 const int temp = initEvents - numEvents;
+						count = netEvents-temp;
                                                 
 
                                                 for (int j = 0; j < netEvents-temp; j++) {
@@ -367,10 +369,10 @@ void DvxplorerRosDriver::readout() {
 					// throttle event messages
 					//if ((boost::posix_time::microsec_clock::local_time() > next_send_time) || (streaming_rate == 0)
 					//	|| ((max_events != 0) && (event_array_msg->events.size() > max_events))) {
-                                        if (event_array_msg->events.size() <= max_events){
-                                                std::cout<< event_array_msg->events.size() <<std::endl;
+                                        if (count <= max_events){
+                                                //std::cout<< event_array_msg->events.size() <<std::endl;
 						event_array_pub_.publish(event_array_msg);
-						event_size_pub_.publish(event_array_msg->events.size());
+						event_size_pub_.publish(count);
 
 						//if (streaming_rate > 0) {
 						//	next_send_time += delta_;
