@@ -1,42 +1,19 @@
 rpg_dvs_ros
 ===========
 
-# Disclaimer and License
+# Disclaimer
 
-The RPG ROS DVS package is supported under ROS Kinetic (Ubuntu 16.04), ROS Melodic (Ubuntu 18.04) and ROS Noetic (Ubuntu 20.04).
+The github repo is originally cloned from [rpg_dvs_ros](https://github.com/uzh-rpg/rpg_dvs_ros) which is contributed by the authors: Elias Mueggler, Basil Huber, Luca Longinotti, Tobi Delbruck. Code has been used/modified for the purpose of my current project.
 
-This is research code, expect that it changes often and any fitness for a particular purpose is disclaimed.
-
-The source code is released under the **MIT License**.
-
-
-# Package Overview
-
-The ROS DVS package provides C++ drivers for the [Dynamic Vision Sensors (DVS/DAVIS)](https://inivation.com/dvp/).
-Even if you do not have a DAVS or DAVIS device, you can still [use this driver to read pre-recorded event data files (see the example below)](#ExampleEventCameraDataset).
-The package also provides a calibration tool for both intrinsic and stereo calibration.
-To find out more about event cameras, visit the website of the [Institute of Neuroinformatics](http://siliconretina.ini.uzh.ch/wiki/index.php).
-The package is based on [libcaer](https://gitlab.com/inivation/libcaer/).
-
-Authors: Elias Mueggler, Basil Huber, Luca Longinotti, Tobi Delbruck
-
-
-## Publications
-
-If you use this work in an academic context, please cite the following publications:
-
-* E. Mueggler, B. Huber, D. Scaramuzza: **Event-based, 6-DOF Pose Tracking for High-Speed Maneuvers**. IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), Chicago, 2014. ([PDF](http://rpg.ifi.uzh.ch/docs/IROS14_Mueggler.pdf))
-* P. Lichtsteiner, C. Posch, T. Delbruck: **A 128×128 120dB 15us Latency Asynchronous Temporal Contrast Vision Sensor**. IEEE Journal of Solid State Circuits, Feb. 2008, 43(2), pp. 566-576. ([PDF](https://www.ini.uzh.ch/~tobi/wiki/lib/exe/fetch.php?media=lichtsteiner_dvs_jssc08.pdf))
-* C. Brandli, R. Berner, M. Yang, S. C. Liu and T. Delbruck: **A 240 × 180 130 dB 3 us Latency Global Shutter Spatiotemporal Vision Sensor**. IEEE Journal of Solid-State Circuits, Oct. 2014, 49(10), pp. 2333-2341. ([Link](ieeexplore.ieee.org/document/6889103))
 
 
 # Driver Installation
 
-NOTE: substitute any mention of kinetic in the following instruction with the name of your current ROS distribution.
+NOTE: substitute any mention of melodic in the following instruction with the name of your current ROS distribution.
 
 1. Install ROS dependencies:
-*   `$ sudo apt-get install ros-kinetic-camera-info-manager`
-*   `$ sudo apt-get install ros-kinetic-image-view`
+*   `$ sudo apt-get install ros-melodic-camera-info-manager`
+*   `$ sudo apt-get install ros-melodic-image-view`
 
 2. Install libcaer (add required repositories as per [iniVation documentation](https://inivation.gitlab.io/dv/dv-docs/docs/getting-started.html#ubuntu-linux) first):
 *   `$ sudo apt-get install libcaer-dev`
@@ -48,7 +25,7 @@ NOTE: substitute any mention of kinetic in the following instruction with the na
 *   `$ cd`
 *   `$ mkdir -p catkin_ws/src`
 *   `$ cd catkin_ws`
-*   `$ catkin config --init --mkdirs --extend /opt/ros/kinetic --merge-devel --cmake-args -DCMAKE_BUILD_TYPE=Release`
+*   `$ catkin config --init --mkdirs --extend /opt/ros/melodic --merge-devel --cmake-args -DCMAKE_BUILD_TYPE=Release`
 
 5. Clone the `catkin_simple` package (https://github.com/catkin/catkin_simple), which will be used to build the DVS/DAVIS driver packages:
 *   `$ cd ~/catkin_ws/src`
@@ -56,7 +33,7 @@ NOTE: substitute any mention of kinetic in the following instruction with the na
 
 6. Clone this repository:
 *   `$ cd ~/catkin_ws/src`
-*   `$ git clone https://github.com/uzh-rpg/rpg_dvs_ros.git`
+*   `$ git clone https://github.com/ziimiin14/dvxplorer_ros_modified.git`
 
 7. Build the packages:
 * `$ catkin build dvs_ros_driver`  (if you are using the DVS128)
@@ -102,22 +79,3 @@ NOTE: substitute any mention of kinetic in the following instruction with the na
 
 For intrinsic or stereo calibration of the DVS and DAVIS, please have a look at the following [document](dvs_calibration/README.md).
 
-
-# Troubleshooting
-
-## New dvs_msgs format
-
-If you recorded rosbags with a previous version of this package, they must be migrated.
-The format for the timestamps changed from uint64 to rostime.
-To convert an "old" bag file, use:
-`$ rosbag fix old.bag new.bag`.
-
-## Compiling error
-
-On Ubuntu 14.04 with GCC 4.8, you will receive an error about missing file (`stdatomic.h`).
-This is a [problem](https://gcc.gnu.org/bugzilla/show_bug.cgi?id=58016) related to GCC 4.8 and can be resolved by [updating to version 4.9](http://askubuntu.com/a/581497/218846):
-
-    sudo add-apt-repository ppa:ubuntu-toolchain-r/test
-    sudo apt-get update
-    sudo apt-get install gcc-4.9 g++-4.9
-    sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.9 60 --slave /usr/bin/g++ g++ /usr/bin/g++-4.9
