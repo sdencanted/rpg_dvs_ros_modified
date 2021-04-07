@@ -2,7 +2,6 @@
 
 #include "dvxplorer_ros_driver/driver.h"
 
-#include <std_msgs/Int32.h>
 
 namespace dvxplorer_ros_driver {
 
@@ -33,6 +32,7 @@ DvxplorerRosDriver::DvxplorerRosDriver(ros::NodeHandle &nh, ros::NodeHandle nh_p
 	camera_info_pub_ = nh_.advertise<sensor_msgs::CameraInfo>(ns + "/camera_info", 1);
 	imu_pub_         = nh_.advertise<sensor_msgs::Imu>(ns + "/imu", 10);
 	event_size_pub_   = nh_.advertise<std_msgs::Int32>("/dvs/events_size",1);
+	event_array1_pub_ = nh_.advertise<std_msgs::Float32MultiArray>("/dvs/eventsArr", 10);
 
 	// reset timestamps is publisher as master, subscriber as slave
 	if (master_) {
@@ -283,9 +283,10 @@ void DvxplorerRosDriver::readout() {
 	boost::posix_time::ptime next_send_time = boost::posix_time::microsec_clock::local_time();
 
 	dvs_msgs::EventArrayPtr event_array_msg;
+	std_msgs::Float32MultiArrayPtr event_array1_msg;
 
         int initEvents = 0; // extra line
-	const int netEvents = 5000;
+	const int netEvents = 10000;
 
 	while (running_) {
 		try {
@@ -307,10 +308,13 @@ void DvxplorerRosDriver::readout() {
 
 				// Packet 0 is always the special events packet for DVS128, while packet is the polarity events packet.
 				if (type == POLARITY_EVENT) {
+					
 					if (!event_array_msg) {
 						event_array_msg         = dvs_msgs::EventArrayPtr(new dvs_msgs::EventArray());
+						event_array1_msg 	= std_msgs::Float32MultiArrayPtr(new std_msgs::Float32MultiArray());
 						event_array_msg->height = dvxplorer_info_.dvsSizeY;
 						event_array_msg->width  = dvxplorer_info_.dvsSizeX;
+                                                //std::cout << dvxplorer_info_.dvsSizeY<< "           "<< dvxplorer_info_.dvsSizeX << std::endl; // 240      320
 					}
 
 					caerPolarityEventPacket polarity = (caerPolarityEventPacket) packetHeader;
@@ -324,18 +328,24 @@ void DvxplorerRosDriver::readout() {
 							// Get full timestamp and addresses of first event.
 							caerPolarityEvent event = caerPolarityEventPacketGetEvent(polarity, j);
 
+
 							dvs_msgs::Event e;
 							e.x  = caerPolarityEventGetX(event);
 							e.y  = caerPolarityEventGetY(event);
+							float event_time = caerPolarityEventGetTimestamp64(event, polarity) * 1000;
 							e.ts = reset_time_
-								   + ros::Duration().fromNSec(caerPolarityEventGetTimestamp64(event, polarity) * 1000);
+								   + ros::Duration().fromNSec(event_time);
 							e.polarity = caerPolarityEventGetPolarity(event);
-
+							//std::cout << event_time/1e9 << std::endl;
 							if (j == 0) {
 								event_array_msg->header.stamp = e.ts;
 							}
 
 							event_array_msg->events.push_back(e);
+							event_array1_msg->data.push_back(float(e.x));
+							event_array1_msg->data.push_back(float(e.y));
+							event_array1_msg->data.push_back(event_time/1e9);
+							event_array1_msg->data.push_back(float(e.polarity));
 						}
                                         }
 					if (netEvents < initEvents){
@@ -350,15 +360,21 @@ void DvxplorerRosDriver::readout() {
 							dvs_msgs::Event e;
 							e.x  = caerPolarityEventGetX(event);
 							e.y  = caerPolarityEventGetY(event);
+							float event_time = caerPolarityEventGetTimestamp64(event, polarity) * 1000;
 							e.ts = reset_time_
-								   + ros::Duration().fromNSec(caerPolarityEventGetTimestamp64(event, polarity) * 1000);
+								   + ros::Duration().fromNSec(event_time);
 							e.polarity = caerPolarityEventGetPolarity(event);
-
+							//std::cout << event_time/1e9 << std::endl;
 							if (j == 0) {
 								event_array_msg->header.stamp = e.ts;
 							}
 
 							event_array_msg->events.push_back(e);
+							event_array1_msg->data.push_back(float(e.x));
+							event_array1_msg->data.push_back(float(e.y));
+							event_array1_msg->data.push_back(event_time/1e9);
+							event_array1_msg->data.push_back(float(e.polarity));
+
 						}
                                         }
 
@@ -370,8 +386,9 @@ void DvxplorerRosDriver::readout() {
 					//if ((boost::posix_time::microsec_clock::local_time() > next_send_time) || (streaming_rate == 0)
 					//	|| ((max_events != 0) && (event_array_msg->events.size() > max_events))) {
                                         if (count <= max_events){
-                                                //std::cout<< event_array_msg->events.size() <<std::endl;
+                                                //std::cout<< event_array1_msg->data.size() <<std::endl;
 						event_array_pub_.publish(event_array_msg);
+						event_array1_pub_.publish(event_array1_msg);
 						event_size_pub_.publish(count);
 
 						//if (streaming_rate > 0) {

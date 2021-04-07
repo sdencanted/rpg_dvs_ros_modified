@@ -1,1 +1,1 @@
-{bias_sensitivity: 0, streaming_rate: 30, max_events: 5000, subsample_vertical: 0, subsample_horizontal: 0}
+{bias_sensitivity: 0, streaming_rate: 30, max_events: 10000, subsample_vertical: 0, subsample_horizontal: 0}

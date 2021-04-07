@@ -13,6 +13,8 @@
 // messages
 #include <dvs_msgs/Event.h>
 #include <dvs_msgs/EventArray.h>
+#include <std_msgs/Int32.h>
+#include <std_msgs/Float32MultiArray.h>
 #include <sensor_msgs/Imu.h>
 #include <std_msgs/Empty.h>
 #include <std_msgs/Time.h>
@@ -51,6 +53,7 @@ private:
 	ros::Publisher camera_info_pub_;
 	ros::Publisher imu_pub_;
         ros::Publisher event_size_pub_; // extra declare
+	ros::Publisher event_array1_pub_;
 	caerDeviceHandle dvxplorer_handle_;
 
 	std::string ns;
