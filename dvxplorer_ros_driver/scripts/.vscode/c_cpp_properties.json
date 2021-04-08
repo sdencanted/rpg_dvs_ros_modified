@@ -1,0 +1,21 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "",
+        "limitSymbolsToIncludedHeaders": true
+      },
+      "includePath": [
+        "/home/airlab_zimin_er/catkin_ws_dvxplorer/devel/include/**",
+        "/opt/ros/melodic/include/**",
+        "/home/airlab_zimin_er/catkin_ws_dvxplorer/src/rpg_dvs_ros/davis_ros_driver/include/**",
+        "/home/airlab_zimin_er/catkin_ws_dvxplorer/src/rpg_dvs_ros/dvs_renderer/include/**",
+        "/home/airlab_zimin_er/catkin_ws_dvxplorer/src/rpg_dvs_ros/dvs_ros_driver/include/**",
+        "/home/airlab_zimin_er/catkin_ws_dvxplorer/src/rpg_dvs_ros/dvxplorer_ros_driver/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS"
+    }
+  ],
+  "version": 4
+}

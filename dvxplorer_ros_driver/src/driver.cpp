@@ -342,9 +342,9 @@ void DvxplorerRosDriver::readout() {
 							}
 
 							event_array_msg->events.push_back(e);
+							event_array1_msg->data.push_back(event_time/1e9);
 							event_array1_msg->data.push_back(float(e.x));
 							event_array1_msg->data.push_back(float(e.y));
-							event_array1_msg->data.push_back(event_time/1e9);
 							event_array1_msg->data.push_back(float(e.polarity));
 						}
                                         }
