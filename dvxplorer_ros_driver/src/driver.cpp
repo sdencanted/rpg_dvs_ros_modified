@@ -309,19 +309,162 @@ void DvxplorerRosDriver::readout() {
 				// Packet 0 is always the special events packet for DVS128, while packet is the polarity events packet.
 				if (type == POLARITY_EVENT) {
 					
-					if (!event_array_msg) {
+					if (!event_array1_msg) {
 						event_array_msg         = dvs_msgs::EventArrayPtr(new dvs_msgs::EventArray());
 						event_array1_msg 	= std_msgs::Float32MultiArrayPtr(new std_msgs::Float32MultiArray());
 						event_array_msg->height = dvxplorer_info_.dvsSizeY;
 						event_array_msg->width  = dvxplorer_info_.dvsSizeX;
+						
                                                 //std::cout << dvxplorer_info_.dvsSizeY<< "           "<< dvxplorer_info_.dvsSizeX << std::endl; // 240      320
 					}
 
 					caerPolarityEventPacket polarity = (caerPolarityEventPacket) packetHeader;
 
 					const int numEvents = caerEventPacketHeaderGetEventNumber(packetHeader);
+
+					/*for (int j = 0; j < numEvents; j++) {
+						// Get full timestamp and addresses of first event.
+						caerPolarityEvent event = caerPolarityEventPacketGetEvent(polarity, j);
+
+						dvs_msgs::Event e;
+						e.x  = caerPolarityEventGetX(event);
+						e.y  = caerPolarityEventGetY(event);
+						float event_time = caerPolarityEventGetTimestamp64(event, polarity) * 1000;
+						e.ts = reset_time_
+							   + ros::Duration().fromNSec(event_time);
+						e.polarity = caerPolarityEventGetPolarity(event);
+
+						if (j == 0) {
+							event_array_msg->header.stamp = e.ts;
+						}
+
+						event_array_msg->events.push_back(e);
+						event_array1_msg->data.push_back(event_time/1e9);
+						event_array1_msg->data.push_back(float(e.x));
+						event_array1_msg->data.push_back(float(e.y));
+						event_array1_msg->data.push_back(float(e.polarity));
+					}
+
+					int streaming_rate = streaming_rate_;
+					int max_events     = max_events_;
+
+					// throttle event messages
+					if ((boost::posix_time::microsec_clock::local_time() > next_send_time) || (streaming_rate == 0)
+						|| ((max_events != 0) && (event_array_msg->events.size() > max_events))) {
+						event_array_pub_.publish(event_array_msg);
+
+						if (streaming_rate > 0) {
+							next_send_time += delta_;
+						}
+
+						if ((max_events != 0) && (event_array_msg->events.size() > max_events)) {
+							next_send_time = boost::posix_time::microsec_clock::local_time() + delta_;
+						}
+
+						event_array_msg.reset();
+					}*/
+
+					/*if (event_array1_msg){
+						int prevSize = (event_array1_msg->data.size()/4)
+						int end = netEvents - prevSize;
+						for (int j = start; j < end; j++) {
+							// Get full timestamp and addresses of first event.
+							caerPolarityEvent event = caerPolarityEventPacketGetEvent(polarity, j);
+
+
+							dvs_msgs::Event e;
+							e.x  = caerPolarityEventGetX(event);
+							e.y  = caerPolarityEventGetY(event);
+							float event_time = caerPolarityEventGetTimestamp64(event, polarity) * 1000;
+							e.ts = reset_time_
+								+ ros::Duration().fromNSec(event_time);
+							e.polarity = caerPolarityEventGetPolarity(event);
+							//std::cout << event_time/1e9 << std::endl;
+							if (j == 0) {
+								event_array_msg->header.stamp = e.ts;
+							}
+
+							event_array_msg->events.push_back(e);
+							event_array1_msg->data.push_back(event_time/1e9);
+							event_array1_msg->data.push_back(float(e.x));
+							event_array1_msg->data.push_back(float(e.y));
+							event_array1_msg->data.push_back(float(e.polarity));
+						}
+					}
+					//std::cout << numEvents << std::endl;
                                         int count = 0;
-                                        initEvents += numEvents;
+					int packet = numEvents/netEvents;
+					while (count < packet +1){
+						int start = count * netEvents;
+						if (netEvents < numEvents){
+							int end = ((count+1)* netEvents);
+							for (int j = start; j < end; j++) {
+								// Get full timestamp and addresses of first event.
+								caerPolarityEvent event = caerPolarityEventPacketGetEvent(polarity, j);
+
+
+								dvs_msgs::Event e;
+								e.x  = caerPolarityEventGetX(event);
+								e.y  = caerPolarityEventGetY(event);
+								float event_time = caerPolarityEventGetTimestamp64(event, polarity) * 1000;
+								e.ts = reset_time_
+									+ ros::Duration().fromNSec(event_time);
+								e.polarity = caerPolarityEventGetPolarity(event);
+								//std::cout << event_time/1e9 << std::endl;
+								if (j == 0) {
+									event_array_msg->header.stamp = e.ts;
+								}
+
+								event_array_msg->events.push_back(e);
+								event_array1_msg->data.push_back(event_time/1e9);
+								event_array1_msg->data.push_back(float(e.x));
+								event_array1_msg->data.push_back(float(e.y));
+								event_array1_msg->data.push_back(float(e.polarity));
+							}
+							event_array_pub_.publish(event_array_msg);
+							event_array1_pub_.publish(event_array1_msg);
+							event_size_pub_.publish(end-start);
+							event_array_msg.reset();
+
+						}
+						else{
+							int end = (count*netEvents)+numEvents-1;
+							for (int j = start; j < end; j++) {
+								// Get full timestamp and addresses of first event.
+								caerPolarityEvent event = caerPolarityEventPacketGetEvent(polarity, j);
+
+
+								dvs_msgs::Event e;
+								e.x  = caerPolarityEventGetX(event);
+								e.y  = caerPolarityEventGetY(event);
+								float event_time = caerPolarityEventGetTimestamp64(event, polarity) * 1000;
+								e.ts = reset_time_
+									+ ros::Duration().fromNSec(event_time);
+								e.polarity = caerPolarityEventGetPolarity(event);
+								//std::cout << event_time/1e9 << std::endl;
+								if (j == 0) {
+									event_array_msg->header.stamp = e.ts;
+								}
+
+								event_array_msg->events.push_back(e);
+								event_array1_msg->data.push_back(event_time/1e9);
+								event_array1_msg->data.push_back(float(e.x));
+								event_array1_msg->data.push_back(float(e.y));
+								event_array1_msg->data.push_back(float(e.polarity));
+							}
+							event_array_pub_.publish(event_array_msg);
+							event_array1_pub_.publish(event_array1_msg);
+							event_size_pub_.publish(end-start);
+							event_array_msg.reset();
+
+						}
+						numEvents -= netEvents;
+						int number = packet;
+
+
+					}*/
+					int count =0;
+					initEvents += numEvents;
                                         if (netEvents >= initEvents){
                                         	count = numEvents;
 						for (int j = 0; j < numEvents; j++) {
@@ -370,9 +513,9 @@ void DvxplorerRosDriver::readout() {
 							}
 
 							event_array_msg->events.push_back(e);
+							event_array1_msg->data.push_back(event_time/1e9);
 							event_array1_msg->data.push_back(float(e.x));
 							event_array1_msg->data.push_back(float(e.y));
-							event_array1_msg->data.push_back(event_time/1e9);
 							event_array1_msg->data.push_back(float(e.polarity));
 
 						}
@@ -399,7 +542,8 @@ void DvxplorerRosDriver::readout() {
 						//	next_send_time = boost::posix_time::microsec_clock::local_time() + delta_;
 						//}
 
-						event_array_msg.reset();
+						//event_array_msg.reset();
+						event_array1_msg.reset();
                                                 initEvents = 0;
 					}
 

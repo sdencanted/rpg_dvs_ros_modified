@@ -22,6 +22,7 @@ class ImageReconstructor:
         self.height = height # 240 
         self.width = width # 320
         self.num_bins = num_bins # 5
+        self.out = None
 
         self.initialize(self.height, self.width, options)
 
@@ -114,7 +115,8 @@ class ImageReconstructor:
                     out = reconstructions_for_each_channel['grayscale']
 
             # Post-processing, e.g bilateral filter (on CPU)
-            out = self.image_filter(out)
+            self.out = self.image_filter(out)
+
 
             self.image_writer(out, event_tensor_id, stamp, events=events)
             self.image_display(out, events)
