@@ -94,16 +94,16 @@ if __name__ == "__main__":
 
             if num_pol_event != 0:
 
-
-                pol_events = pol_events.astype(np.float32)
-                event_window = pol_events
+                
+                event_window = pol_events.astype(np.float32)
                 event_window[:,0] = event_window[:,0]/1e6
+                # print(event_window)
 
 
 
                 with Timer('Processing entire dataset'):
                     last_timestamp = event_window[-1, 0]
-                    # print(last_timestamp)
+                    # print(event_window[0, 0],event_window[-1, 0])
 
 
                     with Timer('Building event tensor'):
@@ -123,6 +123,7 @@ if __name__ == "__main__":
                                                                         device=device)
                            
                     num_events_in_window = num_pol_event
+                    
                     reconstructor.update_reconstruction(event_tensor, start_index + num_events_in_window, last_timestamp)
 
                     start_index += num_events_in_window

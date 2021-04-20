@@ -50,7 +50,8 @@ def gkern(kernlen=5, nsig=1.0):
     kern1d = np.diff(st.norm.cdf(x))
     kernel_raw = np.sqrt(np.outer(kern1d, kern1d))
     kernel = kernel_raw / kernel_raw.sum()
-    return torch.from_numpy(kernel).float()
+    # return torch.from_numpy(kernel).float()
+    return torch.from_numpy(kernel).type(torch.float16)
 
 
 class EventPreprocessor:
@@ -97,15 +98,16 @@ class EventPreprocessor:
             with CudaTimer('Normalization'):
                 nonzero_ev = (events != 0)
                 num_nonzeros = nonzero_ev.sum()
+                
                 if num_nonzeros > 0:
                     # compute mean and stddev of the **nonzero** elements of the event tensor
                     # we do not use PyTorch's default mean() and std() functions since it's faster
                     # to compute it by hand than applying those funcs to a masked array
                     mean = events.sum() / num_nonzeros
                     stddev = torch.sqrt((events ** 2).sum() / num_nonzeros - mean ** 2)
-                    # print(mean,stddev)
-                    mask = nonzero_ev.float()
-                    events = mask * (events - mean) / stddev
+                    
+                    # mask = nonzero_ev.float()
+                    events = nonzero_ev * (events - mean) / stddev
 
         return events
 
@@ -481,7 +483,7 @@ def events_to_voxel_grid(events, num_bins, width, height):
     return voxel_grid
 
 
-def events_to_voxel_grid_pytorch(events_torch, num_bins, width, height, device):
+def events_to_voxel_grid_pytorch(events, num_bins, width, height, device):
     """
     Build a voxel grid with bilinear interpolation in the time domain from a set of events.
 
@@ -494,18 +496,21 @@ def events_to_voxel_grid_pytorch(events_torch, num_bins, width, height, device):
 
     DeviceTimer = CudaTimer if device.type == 'cuda' else Timer
 
-    # assert(events_torch.shape[1] == 4)
+    assert(events.shape[1] == 4)
     assert(num_bins > 0)
     assert(width > 0)
     assert(height > 0)
 
     with torch.no_grad():
 
-        # events_torch = torch.from_numpy(events)
-        # with DeviceTimer('Events -> Device (voxel grid)'):
-        #     events_torch = events_torch.to(device)
+        events_torch = torch.from_numpy(events)
+        voxel_shape = num_bins*height*width
+        # print(events_torch.dtype)
+        with DeviceTimer('Events -> Device (voxel grid)'):
+            events_torch = events_torch.to(device)
+
         with DeviceTimer('Voxel grid voting'):
-            voxel_grid = torch.zeros(num_bins, height, width, dtype=torch.float32, device=device).flatten()
+            voxel_grid = torch.zeros(voxel_shape, dtype=torch.float32, device=device)
 
             # normalize the event timestamps so that they lie between 0 and num_bins
             last_stamp = events_torch[-1, 0]
@@ -517,17 +522,16 @@ def events_to_voxel_grid_pytorch(events_torch, num_bins, width, height, device):
 
             events_torch[:, 0] = (num_bins - 1) * (events_torch[:, 0] - first_stamp) / deltaT
             ts = events_torch[:, 0]
-            xs = events_torch[:, 1].long() # int64
-            ys = events_torch[:, 2].long() 
-            pols = events_torch[:, 3].float() #float32
+            xs = events_torch[:, 1] # int64
+            ys = events_torch[:, 2] 
+            pols = events_torch[:, 3] #float32
             pols[pols == 0] = -1  # polarity should be +1 / -1
 
             tis = torch.floor(ts)
-            # tis = ts
-            tis_long = tis.long()
+            tis_long = tis.int()
             dts = ts - tis
-            vals_left = pols * (1.0 - dts.float())
-            vals_right = pols * dts.float()
+            vals_left = pols * (1.0 - dts)
+            vals_right = pols * dts
 
             valid_indices = tis < num_bins
             valid_indices &= tis >= 0
@@ -535,6 +539,9 @@ def events_to_voxel_grid_pytorch(events_torch, num_bins, width, height, device):
                                   index=(xs[valid_indices] + ys[valid_indices]
                                   * width + tis_long[valid_indices] * width * height).type(torch.cuda.LongTensor),
                                   source=vals_left[valid_indices])
+            # index = (xs[valid_indices] + ys[valid_indices]* width + tis_long[valid_indices] * width * height)
+            # index = index.type(torch.long)
+            # voxel_grid[index] += vals_left[valid_indices]
 
             valid_indices = (tis + 1) < num_bins
             valid_indices &= tis >= 0
@@ -543,6 +550,10 @@ def events_to_voxel_grid_pytorch(events_torch, num_bins, width, height, device):
                                   index=(xs[valid_indices] + ys[valid_indices] * width
                                   + (tis_long[valid_indices] + 1) * width * height).type(torch.cuda.LongTensor),
                                   source=vals_right[valid_indices])
+            # index=(xs[valid_indices] + ys[valid_indices] * width + (tis_long[valid_indices] + 1) * width * height)
+            # index = index.type(torch.long)
+            # voxel_grid[index] += vals_right[valid_indices]
+
 
         voxel_grid = voxel_grid.view(num_bins, height, width)
 
