@@ -41,8 +41,8 @@ class ImageReconstructor:
 
         self.crop = CropParameters(self.width, self.height, 4) # num_encoders = 4
 
-        init_1 = torch.zeros((1,16,240,320),device='cuda:0',dtype=torch.float16)
-        init_2 = torch.zeros((1,16,240,320),device='cuda:0',dtype=torch.float16)
+        init_1 = torch.zeros((1,16,240,320),device='cuda:0')
+        init_2 = torch.zeros((1,16,240,320),device='cuda:0')
         init_state = [init_1,init_2]
         self.last_states_for_each_channel = {'grayscale': init_state}
 
@@ -69,7 +69,6 @@ class ImageReconstructor:
                     events = events.to(self.device)
 
                 events = self.event_preprocessor(events)
-                # print(events.max(),events.min())
                 events = events.type(torch.float16)
 
                 # Resize tensor to [1 x C x crop_size x crop_size] by applying zero padding
@@ -114,10 +113,10 @@ class ImageReconstructor:
                 if self.perform_color_reconstruction:
                     out = merge_channels_into_color_image(reconstructions_for_each_channel)
                 else:
-                    out = reconstructions_for_each_channel['grayscale']
+                    self.out = reconstructions_for_each_channel['grayscale']
 
             # Post-processing, e.g bilateral filter (on CPU)
-            out = self.image_filter(out)
+            #self.out = self.image_filter(out)
 
-            self.image_writer(out, event_tensor_id, stamp, events=events)
-            # self.image_display(out, events)
+            #self.image_writer(out, event_tensor_id, stamp, events=events)
+            #self.image_display(out, events)

@@ -50,7 +50,7 @@ class subEvent:
         with Timer('Processing entire dataset'):
 
             last_timestamp = event_window[-1, 0]
-            print(event_window[0,0],event_window[-1,0])
+            #print(event_window[0,0],event_window[-1,0])
 
             with Timer('Building event tensor'):
                 if args.compute_voxel_grid_on_cpu:
@@ -72,8 +72,8 @@ class subEvent:
             self.reconstructor.update_reconstruction(event_tensor, self.start_index + num_events_in_window, last_timestamp)
 
             self.start_index += num_events_in_window
-            with Timer('Show img'):
-                self.show_image(self.reconstructor.out)
+            #with Timer('Show img'):
+             #   self.show_image(self.reconstructor.out)
 
     def show_image(self,img):
       cv2.imshow("Image Window", img)
