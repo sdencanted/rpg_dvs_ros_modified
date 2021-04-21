@@ -50,8 +50,8 @@ def gkern(kernlen=5, nsig=1.0):
     kern1d = np.diff(st.norm.cdf(x))
     kernel_raw = np.sqrt(np.outer(kern1d, kern1d))
     kernel = kernel_raw / kernel_raw.sum()
-    #return torch.from_numpy(kernel).float()
-    return torch.from_numpy(kernel).type(torch.float16)
+    return torch.from_numpy(kernel).float()
+    #return torch.from_numpy(kernel).type(torch.float16)
 
 
 class EventPreprocessor:
