@@ -2,6 +2,7 @@
 
 #include "dvxplorer_ros_driver/driver.h"
 
+#include <std_msgs/Int32.h>
 
 namespace dvxplorer_ros_driver {
 
@@ -31,8 +32,6 @@ DvxplorerRosDriver::DvxplorerRosDriver(ros::NodeHandle &nh, ros::NodeHandle nh_p
 	event_array_pub_ = nh_.advertise<dvs_msgs::EventArray>(ns + "/events", 10);
 	camera_info_pub_ = nh_.advertise<sensor_msgs::CameraInfo>(ns + "/camera_info", 1);
 	imu_pub_         = nh_.advertise<sensor_msgs::Imu>(ns + "/imu", 10);
-	event_size_pub_   = nh_.advertise<std_msgs::Int32>("/dvs/events_size",1);
-	event_array1_pub_ = nh_.advertise<std_msgs::Float32MultiArray>("/dvs/eventsArr", 10);
 
 	// reset timestamps is publisher as master, subscriber as slave
 	if (master_) {
@@ -283,10 +282,6 @@ void DvxplorerRosDriver::readout() {
 	boost::posix_time::ptime next_send_time = boost::posix_time::microsec_clock::local_time();
 
 	dvs_msgs::EventArrayPtr event_array_msg;
-	std_msgs::Float32MultiArrayPtr event_array1_msg;
-
-        int initEvents = 0; // extra line
-	const int netEvents = 40000;
 
 	while (running_) {
 		try {
@@ -296,7 +291,6 @@ void DvxplorerRosDriver::readout() {
 			}
 
 			const int32_t packetNum = caerEventPacketContainerGetEventPacketsNumber(packetContainer);
-			//std::cout<< packetNum <<std::endl; //3
 
 			for (int32_t i = 0; i < packetNum; i++) {
 				caerEventPacketHeader packetHeader = caerEventPacketContainerGetEventPacket(packetContainer, i);
@@ -308,14 +302,10 @@ void DvxplorerRosDriver::readout() {
 
 				// Packet 0 is always the special events packet for DVS128, while packet is the polarity events packet.
 				if (type == POLARITY_EVENT) {
-					
 					if (!event_array_msg) {
 						event_array_msg         = dvs_msgs::EventArrayPtr(new dvs_msgs::EventArray());
-						event_array1_msg 	= std_msgs::Float32MultiArrayPtr(new std_msgs::Float32MultiArray());
 						event_array_msg->height = dvxplorer_info_.dvsSizeY;
 						event_array_msg->width  = dvxplorer_info_.dvsSizeX;
-						
-                                                //std::cout << dvxplorer_info_.dvsSizeY<< "           "<< dvxplorer_info_.dvsSizeX << std::endl; // 240      320
 					}
 
 					caerPolarityEventPacket polarity = (caerPolarityEventPacket) packetHeader;
@@ -328,70 +318,34 @@ void DvxplorerRosDriver::readout() {
 						dvs_msgs::Event e;
 						e.x  = caerPolarityEventGetX(event);
 						e.y  = caerPolarityEventGetY(event);
-						int64_t event_time = caerPolarityEventGetTimestamp64(event, polarity);
 						e.ts = reset_time_
-							   + ros::Duration().fromNSec(event_time*1000);
+							   + ros::Duration().fromNSec(caerPolarityEventGetTimestamp64(event, polarity) * 1000);
 						e.polarity = caerPolarityEventGetPolarity(event);
-						float time_stamp = event_time/1e6;
-
 
 						if (j == 0) {
 							event_array_msg->header.stamp = e.ts;
 						}
-						
+
 						event_array_msg->events.push_back(e);
-                                                event_array1_msg->data.push_back(time_stamp);
-						event_array1_msg->data.push_back(float(e.x));
-						event_array1_msg->data.push_back(float(e.y));
-						event_array1_msg->data.push_back(float(e.polarity));
-						/*if (j%netEvents == netEvents-1){
-							std::cout << j<< "         "<< event_array_msg->events.size() << std::endl;
-							event_array_pub_.publish(event_array_msg);
-							event_array1_pub_.publish(event_array1_msg);
-							event_size_pub_.publish(netEvents);
-
-							event_array_msg.reset();
-							event_array1_msg.reset();
-							if (!event_array_msg){
-								event_array_msg         = dvs_msgs::EventArrayPtr(new dvs_msgs::EventArray());
-								event_array1_msg 	= std_msgs::Float32MultiArrayPtr(new std_msgs::Float32MultiArray());
-								event_array_msg->height = dvxplorer_info_.dvsSizeY;
-								event_array_msg->width  = dvxplorer_info_.dvsSizeX;
-							}
-							//break;
-							
-						} */
-
 					}
-					//std::cout << numEvents<< "         "<< event_array_msg->events.size() << std::endl;
-//					event_array_msg.reset();
-//					event_array1_msg.reset();
-
-
 
 					int streaming_rate = streaming_rate_;
 					int max_events     = max_events_;
-					int count = event_array_msg->events.size();
 
 					// throttle event messages
-                                        //if (count <= max_events){
-					if ((boost::posix_time::microsec_clock::local_time() > next_send_time)){// || (streaming_rate == 0)
-						//|| ((max_events != 0) && (event_array_msg->events.size() > max_events))) {
-                                                //std::cout<< event_array1_msg->data.size() <<std::endl;
+					if ((boost::posix_time::microsec_clock::local_time() > next_send_time) || (streaming_rate == 0)
+						|| ((max_events != 0) && (event_array_msg->events.size() > max_events))) {
 						event_array_pub_.publish(event_array_msg);
-						event_array1_pub_.publish(event_array1_msg);
-						event_size_pub_.publish(count);
 
 						if (streaming_rate > 0) {
 							next_send_time += delta_;
 						}
 
-//						if ((max_events != 0) && (event_array_msg->events.size() > max_events)) {
-//							next_send_time = boost::posix_time::microsec_clock::local_time() + delta_;
-//						}
+						if ((max_events != 0) && (event_array_msg->events.size() > max_events)) {
+							next_send_time = boost::posix_time::microsec_clock::local_time() + delta_;
+						}
 
 						event_array_msg.reset();
-						event_array1_msg.reset();
 					}
 
 					if (camera_info_manager_->isCalibrated()) {
@@ -400,7 +354,6 @@ void DvxplorerRosDriver::readout() {
 						camera_info_pub_.publish(camera_info_msg);
 					}
 				}
-//test
 				else if (type == IMU6_EVENT) {
 					caerIMU6EventPacket imu = (caerIMU6EventPacket) packetHeader;
 
@@ -467,3 +420,4 @@ void DvxplorerRosDriver::readout() {
 }
 
 } // namespace dvxplorer_ros_driver
+

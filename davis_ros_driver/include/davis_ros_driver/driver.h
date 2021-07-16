@@ -13,8 +13,12 @@
 // messages
 #include <dvs_msgs/Event.h>
 #include <dvs_msgs/EventArray.h>
+#include <dvs_msgs/EventStruct.h>
 #include <std_msgs/Empty.h>
 #include <std_msgs/Time.h>
+#include <std_msgs/Int32.h>
+//#include <std_msgs/UInt8MultiArray.h>
+//#include <std_msgs/Int64MultiArray.h>
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/Image.h>
 
@@ -55,6 +59,10 @@ private:
   ros::Publisher imu_pub_;
   ros::Publisher image_pub_;
   ros::Publisher exposure_pub_;
+  ros::Publisher eventStruct_pub_;
+  //ros::Publisher event_pub_;
+  //ros::Publisher eventTime_pub_;
+  ros::Publisher eventSize_pub_;
   caerDeviceHandle davis_handle_;
   
   std::string ns;

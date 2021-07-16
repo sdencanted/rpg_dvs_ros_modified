@@ -1,0 +1,2 @@
+std_msgs/UInt8MultiArray eventArr
+std_msgs/Int64MultiArray eventTime

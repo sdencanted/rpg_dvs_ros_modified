@@ -51,12 +51,7 @@ DavisRosDriver::DavisRosDriver(ros::NodeHandle & nh, ros::NodeHandle nh_private)
   if (ns == "/")
     ns = "/dvs";
 
-  //event_array_pub_ = nh_.advertise<dvs_msgs::EventArray>(ns + "/events", 10);
-  //event_pub_ = nh_.advertise<std_msgs::UInt8MultiArray>(ns+ "/eventArr",10);
-  //eventTime_pub_ = nh_.advertise<std_msgs::Int64MultiArray>(ns+ "/eventTime",10);
-  eventStruct_pub_ = nh_.advertise<dvs_msgs::EventStruct>(ns+ "/eventStruct",10);
-  eventSize_pub_ = nh_.advertise<std_msgs::Int32>(ns+ "/eventSize",10);
-
+  event_array_pub_ = nh_.advertise<dvs_msgs::EventArray>(ns + "/events", 10);
   camera_info_pub_ = nh_.advertise<sensor_msgs::CameraInfo>(ns + "/camera_info", 1);
   imu_pub_ = nh_.advertise<sensor_msgs::Imu>(ns + "/imu", 10);
   image_pub_ = nh_.advertise<sensor_msgs::Image>(ns + "/image_raw", 1);
@@ -83,6 +78,7 @@ DavisRosDriver::DavisRosDriver(ros::NodeHandle & nh, ros::NodeHandle nh_private)
   caerConnect();
   //current_config_.streaming_rate = 30;
   delta_ = boost::posix_time::microseconds(long(1e6/current_config_.streaming_rate));
+  //delta_ = boost::posix_time::microseconds(long(1e6/100));
 
   imu_calibration_sub_ = nh_.subscribe((ns + "/calibrate_imu").c_str(), 1, &DavisRosDriver::imuCalibrationCallback, this);
   snapshot_sub_ = nh_.subscribe((ns + "/trigger_snapshot").c_str(), 1, &DavisRosDriver::snapshotCallback, this);
@@ -640,11 +636,7 @@ void DavisRosDriver::readout()
 
     boost::posix_time::ptime next_send_time = boost::posix_time::microsec_clock::local_time();
 
-    //dvs_msgs::EventArrayPtr event_array_msg;
-    //std_msgs::UInt8MultiArrayPtr event_msg;
-    //std_msgs::Int64MultiArrayPtr eventTime_msg;
-    dvs_msgs::EventStructPtr eventStruct_msg;
-
+    dvs_msgs::EventArrayPtr event_array_msg;
 
     while (running_)
     {
@@ -671,16 +663,11 @@ void DavisRosDriver::readout()
                 // Packet 0 is always the special events packet for DVS128, while packet is the polarity events packet.
                 if (type == POLARITY_EVENT)
                 {
-                    if (!eventStruct_msg)
+                    if (!event_array_msg)
                     {
-                        //event_array_msg = dvs_msgs::EventArrayPtr(new dvs_msgs::EventArray());
-                        //event_msg = std_msgs::UInt8MultiArrayPtr(new std_msgs::UInt8MultiArray());
-                        //eventTime_msg = std_msgs::Int64MultiArrayPtr(new std_msgs::Int64MultiArray());
-                        //event_array_msg->height = davis_info_.dvsSizeY;
-                        //event_array_msg->width = davis_info_.dvsSizeX;
-                        eventStruct_msg = dvs_msgs::EventStructPtr(new dvs_msgs::EventStruct());
-                        //eventStruct_msg->eventArr = std_msgs::UInt8MultiArrayPtr(new std_msgs::UInt8MultiArray());
-                        //eventStruct_msg->eventTime = std_msgs::Int64MultiArrayPtr(new std_msgs::Int64MultiArray());
+                        event_array_msg = dvs_msgs::EventArrayPtr(new dvs_msgs::EventArray());
+                        event_array_msg->height = davis_info_.dvsSizeY;
+                        event_array_msg->width = davis_info_.dvsSizeX;
                     }
 
                     caerPolarityEventPacket polarity = (caerPolarityEventPacket) packetHeader;
@@ -690,56 +677,40 @@ void DavisRosDriver::readout()
                     {
                         // Get full timestamp and addresses of first event.
                         caerPolarityEvent event = caerPolarityEventPacketGetEvent(polarity, j);
-                        uint8_t eX = caerPolarityEventGetX(event);
-                        uint8_t eY = caerPolarityEventGetY(event);
-                        uint8_t eP = caerPolarityEventGetPolarity(event);
-                        int64_t eT = caerPolarityEventGetTimestamp64(event, polarity);
 
-                        //dvs_msgs::Event e;
-                        //e.x = caerPolarityEventGetX(event);
-                        //e.y = caerPolarityEventGetY(event);
-                        //e.ts = reset_time_
-                        //       + ros::Duration().fromNSec(caerPolarityEventGetTimestamp64(event, polarity) * 1000);
-                        //e.polarity = caerPolarityEventGetPolawrity(event);
+                        dvs_msgs::Event e;
+                        e.x = caerPolarityEventGetX(event);
+                        e.y = caerPolarityEventGetY(event);
+                        e.ts = reset_time_
+                                + ros::Duration().fromNSec(caerPolarityEventGetTimestamp64(event, polarity) * 1000);
+                        e.polarity = caerPolarityEventGetPolarity(event);
 
-                        //if(j == 0)
-                        //{
-                        //    event_array_msg->header.stamp = e.ts;
-                        //}
+                        if(j == 0)
+                        {
+                            event_array_msg->header.stamp = e.ts;
+                        }
 
-                        //event_array_msg->events.push_back(e);
-                        eventStruct_msg->eventArr.data.push_back(eX);
-                        eventStruct_msg->eventArr.data.push_back(eY);
-                        eventStruct_msg->eventArr.data.push_back(eP);
-                        eventStruct_msg->eventTime.data.push_back(eT);
+                        event_array_msg->events.push_back(e);
                     }
-                    int32_t count = eventStruct_msg->eventTime.data.size();
 
                     // throttle event messages
                     if (boost::posix_time::microsec_clock::local_time() > next_send_time ||
                             current_config_.streaming_rate == 0 ||
-                            (current_config_.max_events != 0 && count > current_config_.max_events)
+                            (current_config_.max_events != 0 && event_array_msg->events.size() > current_config_.max_events)
                             )
                     {
-                        //event_array_pub_.publish(event_array_msg);
-                        //event_pub_.publish(event_msg);
-                        //eventTime_pub_.publish(eventTime_msg);
-                        eventStruct_pub_.publish(eventStruct_msg);
-                        eventSize_pub_.publish(count);
+                        event_array_pub_.publish(event_array_msg);
 
                         if (current_config_.streaming_rate > 0)
                         {
                             next_send_time += delta_;
                         }
-                        if (current_config_.max_events != 0 && count > current_config_.max_events)
+                        if (current_config_.max_events != 0 && event_array_msg->events.size() > current_config_.max_events)
                         {
                             next_send_time = boost::posix_time::microsec_clock::local_time() + delta_;
                         }
 
-                        //event_msg.reset();
-                        //eventTime_msg.reset();
-                        eventStruct_msg.reset();
-
+                        event_array_msg.reset();
                     }
 
                     if (camera_info_manager_->isCalibrated())
