@@ -78,7 +78,6 @@ DavisRosDriver::DavisRosDriver(ros::NodeHandle & nh, ros::NodeHandle nh_private)
   caerConnect();
   //current_config_.streaming_rate = 30;
   delta_ = boost::posix_time::microseconds(long(1e6/current_config_.streaming_rate));
-  //delta_ = boost::posix_time::microseconds(long(1e6/100));
 
   imu_calibration_sub_ = nh_.subscribe((ns + "/calibrate_imu").c_str(), 1, &DavisRosDriver::imuCalibrationCallback, this);
   snapshot_sub_ = nh_.subscribe((ns + "/trigger_snapshot").c_str(), 1, &DavisRosDriver::snapshotCallback, this);
@@ -493,6 +492,7 @@ void DavisRosDriver::changeDvsParameters()
                 caerDeviceConfigSet(davis_handle_, DAVIS_CONFIG_APS, DAVIS_CONFIG_APS_START_ROW_0, current_config_.aps_roi_start_row);
                 caerDeviceConfigSet(davis_handle_, DAVIS_CONFIG_APS, DAVIS_CONFIG_APS_END_COLUMN_0, current_config_.aps_roi_end_column);
                 caerDeviceConfigSet(davis_handle_, DAVIS_CONFIG_APS, DAVIS_CONFIG_APS_END_ROW_0, current_config_.aps_roi_end_row);
+                //caerDeviceConfigSet(davis_handle_, DAVIS_CONFIG_APS, CAER_HOST_CONFIG_PACKETS_MAX_CONTAINER_INTERVAL, 100000);
             }
             else
             {
