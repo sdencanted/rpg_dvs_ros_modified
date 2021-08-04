@@ -692,8 +692,15 @@ void DavisRosDriver::readout()
                         caerPolarityEvent event = caerPolarityEventPacketGetEvent(polarity, j);
                         uint8_t eX = caerPolarityEventGetX(event);
                         uint8_t eY = caerPolarityEventGetY(event);
-                        uint8_t eP = caerPolarityEventGetPolarity(event);
-                        int64_t eT = caerPolarityEventGetTimestamp64(event, polarity);
+			if ((eX != 58) && (eY != 114 || eY != 115)){
+				uint8_t eP = caerPolarityEventGetPolarity(event);
+                        	int64_t eT = caerPolarityEventGetTimestamp64(event, polarity);
+				eventStruct_msg->eventArr.data.push_back(eX);
+		                eventStruct_msg->eventArr.data.push_back(eY);
+		                eventStruct_msg->eventArr.data.push_back(eP);
+		                eventStruct_msg->eventTime.data.push_back(eT);
+			}
+                        
 
                         //dvs_msgs::Event e;
                         //e.x = caerPolarityEventGetX(event);
@@ -708,10 +715,7 @@ void DavisRosDriver::readout()
                         //}
 
                         //event_array_msg->events.push_back(e);
-                        eventStruct_msg->eventArr.data.push_back(eX);
-                        eventStruct_msg->eventArr.data.push_back(eY);
-                        eventStruct_msg->eventArr.data.push_back(eP);
-                        eventStruct_msg->eventTime.data.push_back(eT);
+                        
                     }
                     int32_t count = eventStruct_msg->eventTime.data.size();
 

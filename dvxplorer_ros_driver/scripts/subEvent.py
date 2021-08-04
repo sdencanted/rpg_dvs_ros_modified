@@ -46,6 +46,7 @@ class subEvent:
     def eventsArrCallback(self,data):
         if data.data is not None:
             event_window = torch.Tensor(data.data).view(-1,4).to(self.device)
+        print(event_window.shape,event_window.dtype)
         
         with Timer('Processing entire dataset'):
 
@@ -72,8 +73,8 @@ class subEvent:
             self.reconstructor.update_reconstruction(event_tensor, self.start_index + num_events_in_window, last_timestamp)
 
             self.start_index += num_events_in_window
-            #with Timer('Show img'):
-             #   self.show_image(self.reconstructor.out)
+            with Timer('Show img'):
+                self.show_image(self.reconstructor.out)
 
     def show_image(self,img):
       cv2.imshow("Image Window", img)
@@ -151,6 +152,7 @@ if __name__ == '__main__':
 
     # Converts the args into dict format
     args = parser.parse_args()
+    print(args)
 
     # Initialize camera model (image heigh and width) [DVXplorer Lite: 240x320]
     width,height = 320,240

@@ -1,0 +1,11 @@
+<launch>
+  <!-- nodelet manager -->
+  <node pkg="nodelet" type="nodelet" name="nodelet_manager" args="manager" output="screen" />
+  
+  
+  <!-- camera driver -->
+  <node pkg="nodelet" type="nodelet" name="davis_ros_driver" args="load davis_ros_driver/DavisRosDriverNodelet nodelet_manager" output="screen">
+	<rosparam command="load" file="$(find davis_ros_driver)/config/DAVIS240C.yaml" />
+   </node>
+
+</launch>
