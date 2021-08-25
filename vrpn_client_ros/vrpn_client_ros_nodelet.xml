@@ -1,0 +1,7 @@
+<library path="lib/libvrpn_client_nodelet">
+  <class name="vrpn_client_ros/VrpnClientRosNodelet" type="vrpn_client_ros::VrpnClientRosNodelet" base_class_type="nodelet::Nodelet">
+    <description>
+      A nodelet wrapper for the vrpn_client_ros
+    </description>
+  </class>
+</library>
