@@ -698,13 +698,6 @@ void DavisRosDriver::readout()
                         uint8_t eP = caerPolarityEventGetPolarity(event);
                         int64_t eT = caerPolarityEventGetTimestamp64(event, polarity);
 
-                        if (j == 0){
-                          std::cout << "First: " << eT << std::endl;
-                        }
-
-                        if (j == numEvents-1){
-                          std::cout << "Last: " << eT << std::endl;
-                        }
                         if ((eX != 58) || (eY != 114 && eY != 115)){
 
                           eventStruct_msg->eventArr.data.push_back(eX);
@@ -724,8 +717,6 @@ void DavisRosDriver::readout()
                         eventSize_pub_.publish(count);
                         eventStruct_msg.reset();
                         count_R = 0;
-                        std::cout <<"Published!" << std::endl;
-
                     }
 
                     if (camera_info_manager_->isCalibrated())
