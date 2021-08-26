@@ -187,7 +187,7 @@ void DavisRosDriver::caerConnect()
   readout_thread_ = boost::shared_ptr<boost::thread>(new boost::thread(boost::bind(&DavisRosDriver::readout, this)));
 
   // wait for driver to be ready
-  ros::Duration(0.6).sleep();
+  ros::Duration(0.1).sleep();
 
   // initialize timestamps
   resetTimestamps();
@@ -644,6 +644,15 @@ void DavisRosDriver::readout()
     //std_msgs::UInt8MultiArrayPtr event_msg;
     //std_msgs::Int64MultiArrayPtr eventTime_msg;
     dvs_msgs::EventStructPtr eventStruct_msg;
+    uint8_t count_R = 0;
+    uint8_t reached =0;
+    if (current_config_.streaming_rate > 100){
+      reached = 1;
+    }
+    else{
+      reached = 100/current_config_.streaming_rate;
+    }
+    
 
 
     while (running_)
@@ -686,57 +695,36 @@ void DavisRosDriver::readout()
                         caerPolarityEvent event = caerPolarityEventPacketGetEvent(polarity, j);
                         uint8_t eX = caerPolarityEventGetX(event);
                         uint8_t eY = caerPolarityEventGetY(event);
-			if ((eX != 58) || (eY != 114 && eY != 115)){
-				uint8_t eP = caerPolarityEventGetPolarity(event);
-                        	int64_t eT = caerPolarityEventGetTimestamp64(event, polarity);
-				eventStruct_msg->eventArr.data.push_back(eX);
-		                eventStruct_msg->eventArr.data.push_back(eY);
-		                eventStruct_msg->eventArr.data.push_back(eP);
-		                eventStruct_msg->eventTime.data.push_back(eT);
-			}
-                        ///////
+                        uint8_t eP = caerPolarityEventGetPolarity(event);
+                        int64_t eT = caerPolarityEventGetTimestamp64(event, polarity);
 
-                        //dvs_msgs::Event e;
-                        //e.x = caerPolarityEventGetX(event);
-                        //e.y = caerPolarityEventGetY(event);
-                        //e.ts = reset_time_
-                        //       + ros::Duration().fromNSec(caerPolarityEventGetTimestamp64(event, polarity) * 1000);
-                        //e.polarity = caerPolarityEventGetPolawrity(event);
+                        if (j == 0){
+                          std::cout << "First: " << eT << std::endl;
+                        }
 
-                        //if(j == 0)
-                        //{
-                        //    event_array_msg->header.stamp = e.ts;
-                        //}
+                        if (j == numEvents-1){
+                          std::cout << "Last: " << eT << std::endl;
+                        }
+                        if ((eX != 58) || (eY != 114 && eY != 115)){
 
-                        //event_array_msg->events.push_back(e);
-                        
+                          eventStruct_msg->eventArr.data.push_back(eX);
+                          eventStruct_msg->eventArr.data.push_back(eY);
+                          eventStruct_msg->eventArr.data.push_back(eP);
+                          eventStruct_msg->eventTime.data.push_back(eT);
+                        }
+
                     }
+                    count_R += 1;
                     int32_t count = eventStruct_msg->eventTime.data.size();
 
                     // throttle event messages
-                    if (boost::posix_time::microsec_clock::local_time() > next_send_time ||
-                            current_config_.streaming_rate == 0 ||
-                            (current_config_.max_events != 0 && count > current_config_.max_events)
-                            )
+                    if (count_R == reached)
                     {
-                        //event_array_pub_.publish(event_array_msg);
-                        //event_pub_.publish(event_msg);
-                        //eventTime_pub_.publish(eventTime_msg);
                         eventStruct_pub_.publish(eventStruct_msg);
                         eventSize_pub_.publish(count);
-
-                        if (current_config_.streaming_rate > 0)
-                        {
-                            next_send_time += delta_;
-                        }
-                        if (current_config_.max_events != 0 && count > current_config_.max_events)
-                        {
-                            next_send_time = boost::posix_time::microsec_clock::local_time() + delta_;
-                        }
-
-                        //event_msg.reset();
-                        //eventTime_msg.reset();
                         eventStruct_msg.reset();
+                        count_R = 0;
+                        std::cout <<"Published!" << std::endl;
 
                     }
 
