@@ -697,7 +697,7 @@ void DavisRosDriver::readout()
                         ///////
 
                         //dvs_msgs::Event e;
-                        //e.x = caerPolarityEventGetX(event);////
+                        //e.x = caerPolarityEventGetX(event);
                         //e.y = caerPolarityEventGetY(event);
                         //e.ts = reset_time_
                         //       + ros::Duration().fromNSec(caerPolarityEventGetTimestamp64(event, polarity) * 1000);
