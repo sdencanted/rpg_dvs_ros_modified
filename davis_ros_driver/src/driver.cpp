@@ -51,9 +51,6 @@ DavisRosDriver::DavisRosDriver(ros::NodeHandle & nh, ros::NodeHandle nh_private)
   if (ns == "/")
     ns = "/dvs";
 
-  //event_array_pub_ = nh_.advertise<dvs_msgs::EventArray>(ns + "/events", 10);
-  //event_pub_ = nh_.advertise<std_msgs::UInt8MultiArray>(ns+ "/eventArr",10);
-  //eventTime_pub_ = nh_.advertise<std_msgs::Int64MultiArray>(ns+ "/eventTime",10);
   eventStruct_pub_ = nh_.advertise<dvs_msgs::EventStruct>(ns+ "/eventStruct",10);
   eventSize_pub_ = nh_.advertise<std_msgs::Int32>(ns+ "/eventSize",10);
 
@@ -187,7 +184,7 @@ void DavisRosDriver::caerConnect()
   readout_thread_ = boost::shared_ptr<boost::thread>(new boost::thread(boost::bind(&DavisRosDriver::readout, this)));
 
   // wait for driver to be ready
-  ros::Duration(0.1).sleep();
+  ros::Duration(0.6).sleep();
 
   // initialize timestamps
   resetTimestamps();
@@ -202,7 +199,8 @@ void DavisRosDriver::onDisconnectUSB(void* driver)
 void DavisRosDriver::resetTimestamps()
 {
   caerDeviceConfigSet(davis_handle_, DAVIS_CONFIG_MUX, DAVIS_CONFIG_MUX_TIMESTAMP_RESET, 1);
-  reset_time_ = ros::Time::now();
+  // reset_time_ = ros::Time::now();
+  reset_time_ = ros::Time(0);
 
   ROS_INFO("Reset timestamps on %s to %.9f.", device_id_.c_str(), reset_time_.toSec());
 
@@ -696,7 +694,7 @@ void DavisRosDriver::readout()
                         uint8_t eX = caerPolarityEventGetX(event);
                         uint8_t eY = caerPolarityEventGetY(event);
                         uint8_t eP = caerPolarityEventGetPolarity(event);
-                        int64_t eT = caerPolarityEventGetTimestamp64(event, polarity);
+                        float eT = caerPolarityEventGetTimestamp64(event, polarity)/1e6;
 
                         if ((eX != 58) || (eY != 114 && eY != 115)){
 
@@ -750,8 +748,7 @@ void DavisRosDriver::readout()
                         msg.orientation_covariance[0] = -1.0;
 
                         // time
-                        msg.header.stamp = reset_time_ +
-                                ros::Duration().fromNSec(caerIMU6EventGetTimestamp64(event, imu) * 1000);
+                        msg.header.stamp = reset_time_ + ros::Duration().fromNSec(caerIMU6EventGetTimestamp64(event, imu) * 1000);
 
                         // frame
                         msg.header.frame_id = "base_link";
