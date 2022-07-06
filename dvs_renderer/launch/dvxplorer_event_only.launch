@@ -1,6 +1,0 @@
-<launch>
-  <!-- camera driver -->
-  <node name="dvxplorer_ros_driver" pkg="dvxplorer_ros_driver" type="dvxplorer_ros_driver" output="screen">
-	<rosparam command="load" file="$(find dvxplorer_ros_driver)/config/dvxplorer_lite.yaml" />
-  </node>
-</launch>
