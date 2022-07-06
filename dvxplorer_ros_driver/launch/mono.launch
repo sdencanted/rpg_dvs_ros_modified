@@ -1,0 +1,5 @@
+<launch>
+  <node name="dvxplorer_ros_driver" pkg="dvxplorer_ros_driver" type="dvxplorer_ros_driver" output="screen">
+	<rosparam command="load" file="$(find dvxplorer_ros_driver)/config/dvx_mini.yaml" />
+  </node>
+</launch>

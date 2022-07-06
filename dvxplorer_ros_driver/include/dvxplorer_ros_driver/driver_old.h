@@ -14,6 +14,8 @@
 #include <dvs_msgs/Event.h>
 #include <dvs_msgs/EventArray.h>
 #include <dvs_msgs/EventStruct.h>
+#include <std_msgs/Int32.h>
+#include <std_msgs/Float32MultiArray.h>
 #include <sensor_msgs/Imu.h>
 #include <std_msgs/Empty.h>
 #include <std_msgs/Time.h>
@@ -29,9 +31,6 @@
 // camera info manager
 #include <camera_info_manager/camera_info_manager.h>
 #include <sensor_msgs/CameraInfo.h>
-
-// std algorithm to filter hot pixels
-# include <algorithm>
 
 namespace dvxplorer_ros_driver {
 
@@ -49,14 +48,14 @@ private:
 	void readout();
 	void resetTimestamps();
 	void caerConnect();
-	void caerConnect2();
 
 	ros::NodeHandle nh_;
-	// ros::Publisher event_array_pub_;
+	ros::Publisher event_array_pub_;
+	ros::Publisher event_struct_pub_;
 	ros::Publisher camera_info_pub_;
-    ros::Publisher event_struct_pub_;
-    ros::Publisher event_size_pub_;
 	ros::Publisher imu_pub_;
+        ros::Publisher event_size_pub_; // extra declare
+	// ros::Publisher event_array1_pub_;
 	caerDeviceHandle dvxplorer_handle_;
 
 	std::string ns;
@@ -103,13 +102,6 @@ private:
 
 	ros::Timer timestamp_reset_timer_;
 	void resetTimerCallback(const ros::TimerEvent &te);
-
-	// hot pixels
-	const std::vector<uint32_t> hot_pixels = {	27006, 38861, 51322, 74113, 94897, 
-												145521, 167170, 179678, 196177, 
-												199474, 203074, 209092, 237236, 
-												252650, 252651, 264467};
-	
 };
 
 } // namespace dvxplorer_ros_driver
