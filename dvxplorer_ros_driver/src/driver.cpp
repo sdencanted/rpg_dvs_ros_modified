@@ -29,7 +29,8 @@ DvxplorerRosDriver::DvxplorerRosDriver(ros::NodeHandle &nh, ros::NodeHandle nh_p
 		ns = "/dvs";
 	}
 
-    event_struct_pub_ = nh_.advertise<dvs_msgs::EventStruct>(ns+ "/eventStruct",10);
+    // event_struct_pub_ = nh_.advertise<dvs_msgs::EventStruct>(ns+ "/eventStruct",10);
+    event_image_pub_ = nh_.advertise<dvs_msgs::EventImage>(ns+ "/eventImage",10);
     event_size_pub_ = nh_.advertise<std_msgs::Int32>(ns+ "/eventSize",10);
 	// event_array_pub_ = nh_.advertise<dvs_msgs::EventArray>(ns + "/events", 10);
 	camera_info_pub_ = nh_.advertise<sensor_msgs::CameraInfo>(ns + "/camera_info", 1);
@@ -303,6 +304,7 @@ void DvxplorerRosDriver::readout() {
 
 	// dvs_msgs::EventArrayPtr event_array_msg;
     dvs_msgs::EventStructPtr event_struct_msg;
+	dvs_msgs::EventImagePtr event_image_msg;
     uint8_t count_R = 0;
     uint8_t reached = 0;
 	// std::cout << (int)streaming_rate_ << std::endl;
@@ -344,6 +346,11 @@ void DvxplorerRosDriver::readout() {
 
                     }
 
+					if(!event_image_msg)
+					{
+						event_image_msg = dvs_msgs::EventImagePtr(new dvs_msgs::EventImage());
+					}
+
 					caerPolarityEventPacket polarity = (caerPolarityEventPacket) packetHeader;
 
 					const int numEvents = caerEventPacketHeaderGetEventNumber(packetHeader);
@@ -364,17 +371,48 @@ void DvxplorerRosDriver::readout() {
 
 						// event_array_msg->events.push_back(e);
 
-                        uint16_t eX = caerPolarityEventGetX(event);
-                        uint16_t eY = caerPolarityEventGetY(event);
+                        uint16_t eX = caerPolarityEventGetX(event)-120;
+                        uint16_t eY = caerPolarityEventGetY(event)-40;
                         // uint8_t eP = caerPolarityEventGetPolarity(event);
                         float eT = caerPolarityEventGetTimestamp64(event, polarity)/1e6;
-						uint32_t key = eY*640+eX;
+						uint32_t key = eY*400+eX;
 
+						// If event is not one of the hot pixels, push back
 						if (!std::binary_search(hot_pixels.begin(), hot_pixels.end(), key)){
-							event_struct_msg->eventArr.data.push_back(eX);
-							event_struct_msg->eventArr.data.push_back(eY);
-							event_struct_msg->eventArr.data.push_back(caerPolarityEventGetPolarity(event));
+							// event_struct_msg->eventArr.data.push_back(eX);
+							// event_struct_msg->eventArr.data.push_back(eY);
+							// event_struct_msg->eventArr.data.push_back(caerPolarityEventGetPolarity(event));
 							event_struct_msg->eventTime.data.push_back(eT);
+
+							event_image_msg->data[key-802]+=0.002915024f; 	// Note: get actual value here
+							event_image_msg->data[key-801]+=0.013064233f;	// 32bit floating point numbers have 
+							event_image_msg->data[key-800]+=0.021539279f;	// between 6 and 7 digits of precision, 
+							event_image_msg->data[key-799]+=0.013064233f;	// regardless of exponent
+							event_image_msg->data[key-798]+=0.002915024f;
+
+							event_image_msg->data[key-402]+=0.013064233f;
+							event_image_msg->data[key-401]+=0.058549832f;
+							event_image_msg->data[key-400]+=0.096532353f;
+							event_image_msg->data[key-399]+=0.058549832f;
+							event_image_msg->data[key-398]+=0.013064233f;
+
+							event_image_msg->data[key-2]+=0.021539279f;
+							event_image_msg->data[key-1]+=0.096532353f;
+							event_image_msg->data[key]+=0.159154943f;
+							event_image_msg->data[key+1]+=0.096532353f;
+							event_image_msg->data[key+2]+=0.021539279f;
+
+							event_image_msg->data[key+398]+=0.013064233f;
+							event_image_msg->data[key+399]+=0.058549832f;
+							event_image_msg->data[key+400]+=0.096532353f;
+							event_image_msg->data[key+401]+=0.058549832f;
+							event_image_msg->data[key+402]+=0.013064233f;
+
+							event_image_msg->data[key+798]+=0.002915024f; 	
+							event_image_msg->data[key+799]+=0.013064233f;	 
+							event_image_msg->data[key+800]+=0.021539279f;	
+							event_image_msg->data[key+801]+=0.013064233f;	
+							event_image_msg->data[key+802]+=0.002915024f;
 						}
 
 						// event_struct_msg->eventArr.data.push_back(caerPolarityEventGetX(event));
@@ -410,9 +448,11 @@ void DvxplorerRosDriver::readout() {
                     // throttle event messages
                     if (count_R == reached)
                     {
-                        event_struct_pub_.publish(event_struct_msg);
+                        // event_struct_pub_.publish(event_struct_msg);
+                        event_image_pub_.publish(event_image_msg);
                         event_size_pub_.publish(count_msg);
                         event_struct_msg.reset();
+						event_image_msg.reset();
                         count_R = 0;
 						// std::cout << (int)reached << std::endl;
                     }

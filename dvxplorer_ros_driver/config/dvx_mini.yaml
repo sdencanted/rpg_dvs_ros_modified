@@ -5,7 +5,7 @@
  subsample_horizontal: 0, 
  imu_gyro_scale: 0,
  roi_enabled: True,
- roi_start_column: 120,
- roi_start_row: 40,
- roi_end_column: 519,
- roi_end_row: 439}
+ roi_start_column: 122,
+ roi_start_row: 42,
+ roi_end_column: 517,
+ roi_end_row: 437}

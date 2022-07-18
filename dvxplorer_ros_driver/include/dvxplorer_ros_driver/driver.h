@@ -14,6 +14,7 @@
 #include <dvs_msgs/Event.h>
 #include <dvs_msgs/EventArray.h>
 #include <dvs_msgs/EventStruct.h>
+#include <dvs_msgs/EventImage.h>
 #include <sensor_msgs/Imu.h>
 #include <std_msgs/Empty.h>
 #include <std_msgs/Time.h>
@@ -55,6 +56,7 @@ private:
 	// ros::Publisher event_array_pub_;
 	ros::Publisher camera_info_pub_;
     ros::Publisher event_struct_pub_;
+    ros::Publisher event_image_pub_;
     ros::Publisher event_size_pub_;
 	ros::Publisher imu_pub_;
 	caerDeviceHandle dvxplorer_handle_;
@@ -105,10 +107,17 @@ private:
 	void resetTimerCallback(const ros::TimerEvent &te);
 
 	// hot pixels
-	const std::vector<uint32_t> hot_pixels = {	27006, 38861, 51322, 74113, 94897, 
-												145521, 167170, 179678, 196177, 
-												199474, 203074, 209092, 237236, 
-												252650, 252651, 264467};
+	// const std::vector<uint32_t> hot_pixels = {	27006, 38861, 51322, 74113, 94897, 
+	// 											145521, 167170, 179678, 196177, 
+	// 											199474, 203074, 209092, 237236, 
+	// 											252650, 252651, 264467};
+	const std::vector<uint32_t> hot_pixels = {	806, 8341, 16002, 30393, 43257,
+												74921, 88410, 96358, 106617, 
+												108714, 110874, 114732, 
+												132316, 141970, 141971, 
+												149227};
+
+	
 	
 };
 
