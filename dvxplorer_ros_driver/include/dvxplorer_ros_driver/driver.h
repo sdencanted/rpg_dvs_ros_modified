@@ -34,6 +34,9 @@
 // std algorithm to filter hot pixels
 # include <algorithm>
 
+// arm neon simd
+#include<arm_neon.h>
+
 namespace dvxplorer_ros_driver {
 
 class DvxplorerRosDriver {
@@ -117,7 +120,14 @@ private:
 												132316, 141970, 141971, 
 												149227};
 
+		
 	
+	
+	
+	float32x4_t gs1 = {0.002915024,0.013064233,0.021539279,0.013064233}; // Note: get actual value here
+	float32x4_t gs2 = {0.013064233,0.058549832,0.096532353,0.058549832}; // 32bit floating point numbers have 
+	float32x4_t gs3 = {0.021539279,0.096532353,0.159154943,0.096532353}; // between 6 and 7 digits of precision, 
+																		 // regardless of exponent
 	
 };
 

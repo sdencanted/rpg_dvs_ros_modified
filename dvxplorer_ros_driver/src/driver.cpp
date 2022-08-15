@@ -385,35 +385,33 @@ void DvxplorerRosDriver::readout() {
 							event_struct_msg->eventArr.data.push_back(caerPolarityEventGetPolarity(event));
 							event_struct_msg->eventTime.data.push_back(eT);
 
-							event_image_msg->data[key-802]+=0.002915024f; 	// Note: get actual value here
-							event_image_msg->data[key-801]+=0.013064233f;	// 32bit floating point numbers have 
-							event_image_msg->data[key-800]+=0.021539279f;	// between 6 and 7 digits of precision, 
-							event_image_msg->data[key-799]+=0.013064233f;	// regardless of exponent
+							// Load into neon registers
+							const float32x4_t v1 = vld1q_f32(event_image_msg->data.c_array()+key-802);
+							const float32x4_t v2 = vld1q_f32(event_image_msg->data.c_array()+key-402);
+							const float32x4_t v3 = vld1q_f32(event_image_msg->data.c_array()+key-2);
+							const float32x4_t v4 = vld1q_f32(event_image_msg->data.c_array()+key+398);
+							const float32x4_t v5 = vld1q_f32(event_image_msg->data.c_array()+key+798);
+
+							// vectorized code (four at once)
+							// add and return to c memory
+							float32x4_t sum = vaddq_f32(v1, gs1);
+							vst1q_f32(event_image_msg->data.c_array()+key-802, sum);
+							sum = vaddq_f32(v2, gs2);
+							vst1q_f32(event_image_msg->data.c_array()+key-402, sum);
+							sum = vaddq_f32(v3, gs3);
+							vst1q_f32(event_image_msg->data.c_array()+key-2, sum);
+							sum = vaddq_f32(v4, gs2);
+							vst1q_f32(event_image_msg->data.c_array()+key+398, sum);
+							sum = vaddq_f32(v5, gs1);
+							vst1q_f32(event_image_msg->data.c_array()+key+798, sum);
+
+						    // scalar code for the remaining items.
 							event_image_msg->data[key-798]+=0.002915024f;
-
-							event_image_msg->data[key-402]+=0.013064233f;
-							event_image_msg->data[key-401]+=0.058549832f;
-							event_image_msg->data[key-400]+=0.096532353f;
-							event_image_msg->data[key-399]+=0.058549832f;
 							event_image_msg->data[key-398]+=0.013064233f;
-
-							event_image_msg->data[key-2]+=0.021539279f;
-							event_image_msg->data[key-1]+=0.096532353f;
-							event_image_msg->data[key]+=0.159154943f;
-							event_image_msg->data[key+1]+=0.096532353f;
 							event_image_msg->data[key+2]+=0.021539279f;
-
-							event_image_msg->data[key+398]+=0.013064233f;
-							event_image_msg->data[key+399]+=0.058549832f;
-							event_image_msg->data[key+400]+=0.096532353f;
-							event_image_msg->data[key+401]+=0.058549832f;
 							event_image_msg->data[key+402]+=0.013064233f;
-
-							event_image_msg->data[key+798]+=0.002915024f; 	
-							event_image_msg->data[key+799]+=0.013064233f;	 
-							event_image_msg->data[key+800]+=0.021539279f;	
-							event_image_msg->data[key+801]+=0.013064233f;	
 							event_image_msg->data[key+802]+=0.002915024f;
+
 						}
 
 						// event_struct_msg->eventArr.data.push_back(caerPolarityEventGetX(event));
