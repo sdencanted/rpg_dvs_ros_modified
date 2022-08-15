@@ -6,7 +6,8 @@ find_package(libcaer REQUIRED)
 
 catkin_simple()
 
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O3")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O3 -march=native")
+# -march=armv8.2-a -fno-finite-math-only
 
 find_package(Boost REQUIRED COMPONENTS system thread)
 
