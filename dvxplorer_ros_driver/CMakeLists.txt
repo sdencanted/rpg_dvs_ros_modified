@@ -4,6 +4,15 @@ project(dvxplorer_ros_driver)
 find_package(catkin_simple REQUIRED)
 find_package(libcaer REQUIRED)
 
+# let cmake find OpenMP and set some variables
+find_package(OpenMP REQUIRED)
+if(OPENMP_FOUND)
+  message(STATUS "OPENMP FOUND")
+  SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+else()
+    message(STATUS "OPENMP NOT FOUND")
+endif()
+
 catkin_simple()
 
 SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O3 -march=native")
@@ -35,6 +44,7 @@ target_link_libraries(dvxplorer_ros_driver_nodelet
   ${catkin_LIBRARIES}
   ${Boost_LIBRARIES}
   libcaer::caer
+  ${OpenMP_LIBS}
 )
 
 

@@ -4,6 +4,8 @@
 
 #include <std_msgs/Int32.h>
 
+#include<omp.h>
+
 namespace dvxplorer_ros_driver {
 
 DvxplorerRosDriver::DvxplorerRosDriver(ros::NodeHandle &nh, ros::NodeHandle nh_private) :
@@ -354,72 +356,76 @@ void DvxplorerRosDriver::readout() {
 					caerPolarityEventPacket polarity = (caerPolarityEventPacket) packetHeader;
 
 					const int numEvents = caerEventPacketHeaderGetEventNumber(packetHeader);
-					for (int j = 0; j < numEvents; j++) {
-						// Get full timestamp and addresses of first event.
-						caerPolarityEvent event = caerPolarityEventPacketGetEvent(polarity, j);
+					
+					float a_local[160000] = {0};
+					#pragma omp parallel num_threads(4) // 4 threads is the minimum number of threads to achieve 100hz
+					{
+						std::vector<uint16_t> eventArr_local;
+						std::vector<float> eventTime_local;
+						#pragma omp for schedule(static) reduction(+:a_local) 
+						for (int j = 0; j < numEvents; j++) {
+							// Get full timestamp and addresses of first event.
+							caerPolarityEvent event = caerPolarityEventPacketGetEvent(polarity, j);
+							if (j == 0) {
+								event_image_msg->header.stamp = reset_time_
+								+ ros::Duration().fromNSec(caerPolarityEventGetTimestamp64(event, polarity) * 1000);
+							}
+							uint16_t eX = caerPolarityEventGetX(event)-120;
+							uint16_t eY = caerPolarityEventGetY(event)-40;
+							float eT = caerPolarityEventGetTimestamp64(event, polarity)/1e6;
+							uint32_t key = eY*400+eX;
 
-						// dvs_msgs::Event e;
-						// e.x  = caerPolarityEventGetX(event);
-						// e.y  = caerPolarityEventGetY(event);
-						// e.ts = reset_time_
-						// 	   + ros::Duration().fromNSec(caerPolarityEventGetTimestamp64(event, polarity) * 1000);
-						// e.polarity = caerPolarityEventGetPolarity(event);
+							// If event is not one of the hot pixels, push back
+							if (!std::binary_search(hot_pixels.begin(), hot_pixels.end(), key)){
 
-						if (j == 0) {
-							event_image_msg->header.stamp = reset_time_
-							   + ros::Duration().fromNSec(caerPolarityEventGetTimestamp64(event, polarity) * 1000);
+								eventArr_local.push_back(eX);
+								eventArr_local.push_back(eY);
+								eventArr_local.push_back(caerPolarityEventGetPolarity(event));
+								eventTime_local.push_back(eT);
+
+								// Load into neon registers
+								const float32x4_t v1 = vld1q_f32(a_local+key-802);
+								const float32x4_t v2 = vld1q_f32(a_local+key-402);
+								const float32x4_t v3 = vld1q_f32(a_local+key-2);
+								const float32x4_t v4 = vld1q_f32(a_local+key+398);
+								const float32x4_t v5 = vld1q_f32(a_local+key+798);
+
+								// vectorized code (four at once)
+								// add and return to c memory
+								float32x4_t sum = vaddq_f32(v1, gs1);
+								vst1q_f32(a_local+key-802, sum);
+								sum = vaddq_f32(v2, gs2);
+								vst1q_f32(a_local+key-402, sum);
+								sum = vaddq_f32(v3, gs3);
+								vst1q_f32(a_local+key-2, sum);
+								sum = vaddq_f32(v4, gs2);
+								vst1q_f32(a_local+key+398, sum);
+								sum = vaddq_f32(v5, gs1);
+								vst1q_f32(a_local+key+798, sum);
+
+								// scalar code for the remaining items.
+								a_local[key-798]+=0.002915024f;
+								a_local[key-398]+=0.013064233f;
+								a_local[key+2]+=0.021539279f;
+								a_local[key+402]+=0.013064233f;
+								a_local[key+802]+=0.002915024f;
+							}
 						}
 
-						// event_array_msg->events.push_back(e);
-
-                        uint16_t eX = caerPolarityEventGetX(event)-120;
-                        uint16_t eY = caerPolarityEventGetY(event)-40;
-                        // uint8_t eP = caerPolarityEventGetPolarity(event);
-                        float eT = caerPolarityEventGetTimestamp64(event, polarity)/1e6;
-						uint32_t key = eY*400+eX;
-
-						// If event is not one of the hot pixels, push back
-						if (!std::binary_search(hot_pixels.begin(), hot_pixels.end(), key)){
-							event_struct_msg->eventArr.data.push_back(eX);
-							event_struct_msg->eventArr.data.push_back(eY);
-							event_struct_msg->eventArr.data.push_back(caerPolarityEventGetPolarity(event));
-							event_struct_msg->eventTime.data.push_back(eT);
-
-							// Load into neon registers
-							const float32x4_t v1 = vld1q_f32(event_image_msg->data.c_array()+key-802);
-							const float32x4_t v2 = vld1q_f32(event_image_msg->data.c_array()+key-402);
-							const float32x4_t v3 = vld1q_f32(event_image_msg->data.c_array()+key-2);
-							const float32x4_t v4 = vld1q_f32(event_image_msg->data.c_array()+key+398);
-							const float32x4_t v5 = vld1q_f32(event_image_msg->data.c_array()+key+798);
-
-							// vectorized code (four at once)
-							// add and return to c memory
-							float32x4_t sum = vaddq_f32(v1, gs1);
-							vst1q_f32(event_image_msg->data.c_array()+key-802, sum);
-							sum = vaddq_f32(v2, gs2);
-							vst1q_f32(event_image_msg->data.c_array()+key-402, sum);
-							sum = vaddq_f32(v3, gs3);
-							vst1q_f32(event_image_msg->data.c_array()+key-2, sum);
-							sum = vaddq_f32(v4, gs2);
-							vst1q_f32(event_image_msg->data.c_array()+key+398, sum);
-							sum = vaddq_f32(v5, gs1);
-							vst1q_f32(event_image_msg->data.c_array()+key+798, sum);
-
-						    // scalar code for the remaining items.
-							event_image_msg->data[key-798]+=0.002915024f;
-							event_image_msg->data[key-398]+=0.013064233f;
-							event_image_msg->data[key+2]+=0.021539279f;
-							event_image_msg->data[key+402]+=0.013064233f;
-							event_image_msg->data[key+802]+=0.002915024f;
-
+						#pragma omp for schedule(static) ordered nowait
+						for(int i=0; i<omp_get_num_threads(); i++) {
+							#pragma omp ordered
+							event_struct_msg->eventArr.data.insert(event_struct_msg->eventArr.data.end(), eventArr_local.begin(), eventArr_local.end());
+							event_struct_msg->eventTime.data.insert(event_struct_msg->eventTime.data.end(), eventTime_local.begin(), eventTime_local.end());
 						}
 
-						// event_struct_msg->eventArr.data.push_back(caerPolarityEventGetX(event));
-						// event_struct_msg->eventArr.data.push_back(caerPolarityEventGetY(event));
-						// event_struct_msg->eventArr.data.push_back(caerPolarityEventGetPolarity(event));
-						// event_struct_msg->eventTime.data.push_back(eT);
-
+						#pragma omp for
+						for (int j = 0; j < 160000; j++) {
+							event_image_msg->data[j] = a_local[j];
+						}
 					}
+
+
 
 					// int streaming_rate = streaming_rate_;
 					// int max_events     = max_events_;
