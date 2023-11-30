@@ -2,7 +2,8 @@
 
 #pragma once
 
-#include <ros/ros.h>
+// #include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 #include <string>
 
 // boost
@@ -11,13 +12,13 @@
 #include <boost/thread/thread_time.hpp>
 
 // messages
-#include <dvs_msgs/Event.h>
-#include <dvs_msgs/EventArray.h>
-#include <dvs_msgs/EventStruct.h>
-#include <dvs_msgs/EventImage.h>
-#include <sensor_msgs/Imu.h>
-#include <std_msgs/Empty.h>
-#include <std_msgs/Time.h>
+#include <dvs_msgs/msg/event.hpp>
+#include <dvs_msgs/msg/event_array.hpp>
+#include <dvs_msgs/msg/event_struct.hpp>
+#include <dvs_msgs/msg/event_image.hpp>
+#include <sensor_msgs/msg/imu.hpp>
+#include <std_msgs/msg/empty.hpp>
+#include <builtin_interfaces/msg/time.hpp>
 
 // DVXplorer driver
 #include <libcaer/devices/dvxplorer.h>
@@ -28,8 +29,9 @@
 // #include <dynamic_reconfigure/server.h>
 
 // camera info manager
-#include <camera_info_manager/camera_info_manager.h>
-#include <sensor_msgs/CameraInfo.h>
+#include <camera_info_manager/camera_info_manager.hpp>
+// #include <sensor_msgs/CameraInfo.h>
+#include <sensor_msgs/msg/camera_info.hpp>
 
 // std algorithm to filter hot pixels
 # include <algorithm>
@@ -37,11 +39,13 @@
 // arm neon simd
 #include<arm_neon.h>
 
-namespace dvxplorer_ros_driver {
+namespace dvxplorer_ros_driver{
 
-class DvxplorerRosDriver {
+class DvxplorerRosDriver: public rclcpp::Node {
 public:
-	DvxplorerRosDriver(ros::NodeHandle &nh, ros::NodeHandle nh_private);
+	explicit DvxplorerRosDriver(const std::string & node_name);
+	DvxplorerRosDriver(const DvxplorerRosDriver&) = delete;
+	DvxplorerRosDriver& operator=(const DvxplorerRosDriver&) = delete;
 	~DvxplorerRosDriver();
 
 	void dataStop();
@@ -49,19 +53,21 @@ public:
 	static void onDisconnectUSB(void *);
 
 private:
-	void callback(dvxplorer_ros_driver::DVXplorer_ROS_DriverConfig &config, uint32_t level);
+	// rcl_interfaces::msg::SetParametersResult callback(std::vector<rclcpp::Parameter> parameters);
+	rcl_interfaces::msg::SetParametersResult callback(std::vector<rclcpp::Parameter>);
+	// void callback(dvxplorer_ros_driver::DVXplorer_ROS_DriverConfig &config, uint32_t level);
 	void readout();
 	void resetTimestamps();
 	void caerConnect();
 	void caerConnect2();
 
-	ros::NodeHandle nh_;
+	// ros::NodeHandle nh_;
 	// ros::Publisher event_array_pub_;
-	ros::Publisher camera_info_pub_;
-    ros::Publisher event_struct_pub_;
-    ros::Publisher event_image_pub_;
-    ros::Publisher event_size_pub_;
-	ros::Publisher imu_pub_;
+	rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_pub_;
+    rclcpp::Publisher<dvs_msgs::msg::EventStruct>::SharedPtr event_struct_pub_;
+    rclcpp::Publisher<dvs_msgs::msg::EventImage>::SharedPtr event_image_pub_;
+    // rclcpp::Publisher<> event_size_pub_;
+	rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
 	caerDeviceHandle dvxplorer_handle_;
 
 	std::string ns;
@@ -71,17 +77,16 @@ private:
 	// boost::shared_ptr<dynamic_reconfigure::Server<dvxplorer_ros_driver::DVXplorer_ROS_DriverConfig>> server_;
 	// dynamic_reconfigure::Server<dvxplorer_ros_driver::DVXplorer_ROS_DriverConfig>::CallbackType
 	// 	dynamic_reconfigure_callback_;
+	rclcpp::Subscription<builtin_interfaces::msg::Time>::SharedPtr reset_sub_;
+	rclcpp::Publisher<builtin_interfaces::msg::Time>::SharedPtr reset_pub_;
+	void resetTimestampsCallback(builtin_interfaces::msg::Time::UniquePtr msg);
 
-	ros::Subscriber reset_sub_;
-	ros::Publisher reset_pub_;
-	void resetTimestampsCallback(const std_msgs::Time::ConstPtr &msg);
-
-	ros::Subscriber imu_calibration_sub_;
-	void imuCalibrationCallback(const std_msgs::Empty::ConstPtr &msg);
+	rclcpp::Subscription<std_msgs::msg::Empty>::SharedPtr imu_calibration_sub_;
+	void imuCalibrationCallback(std_msgs::msg::Empty::UniquePtr );
 	std::atomic_bool imu_calibration_running_;
 	int imu_calibration_sample_size_;
-	std::vector<sensor_msgs::Imu> imu_calibration_samples_;
-	sensor_msgs::Imu bias;
+	std::vector<sensor_msgs::msg::Imu> imu_calibration_samples_;
+	sensor_msgs::msg::Imu bias;
 	void updateImuBias();
 
 	template<typename T>
@@ -93,21 +98,24 @@ private:
 
 	boost::posix_time::time_duration delta_;
 
-	std::atomic_int streaming_rate_;
+	std::atomic_int streaming_rate_{100};
 	std::atomic_int max_events_;
 
 	std::shared_ptr<camera_info_manager::CameraInfoManager> camera_info_manager_;
+	rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;
 
 	struct caer_dvx_info dvxplorer_info_;
 	bool master_;
 	std::string device_id_;
 
-	ros::Time reset_time_;
+	rclcpp::Time reset_time_;
 
 	static constexpr double STANDARD_GRAVITY = 9.81;
 
-	ros::Timer timestamp_reset_timer_;
-	void resetTimerCallback(const ros::TimerEvent &te);
+	// void resetTimerCallback(const rclcpp::TimerEvent &te);
+	void resetTimerCallback();
+	// rclcpp::WallTimer<DvxplorerRosDriver::resetTimerCallback> timestamp_reset_timer_;
+	rclcpp::TimerBase::SharedPtr timestamp_reset_timer_;
 
 	// hot pixels
 	// const std::vector<uint32_t> hot_pixels = {	27006, 38861, 51322, 74113, 94897, 

@@ -1,3 +1,6 @@
 .idea
 cmake-build-debug/
 .vscode/
+.davis_ros_driver/*
+.dvs_ros_driver/*
+.vrpn_client_ros/*
