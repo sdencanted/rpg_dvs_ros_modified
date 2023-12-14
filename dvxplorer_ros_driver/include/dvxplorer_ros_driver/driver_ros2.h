@@ -14,7 +14,7 @@
 // messages
 #include <dvs_msgs/msg/event.hpp>
 #include <dvs_msgs/msg/event_array.hpp>
-#include <dvs_msgs/msg/event_struct.hpp>
+#include <dvs_msgs/msg/event_mag_struct.hpp>
 #include <dvs_msgs/msg/event_image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <std_msgs/msg/empty.hpp>
@@ -38,6 +38,7 @@
 
 // arm neon simd
 #include<arm_neon.h>
+
 
 namespace dvxplorer_ros_driver{
 
@@ -64,7 +65,7 @@ private:
 	// ros::NodeHandle nh_;
 	// ros::Publisher event_array_pub_;
 	rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_pub_;
-    rclcpp::Publisher<dvs_msgs::msg::EventStruct>::SharedPtr event_struct_pub_;
+    rclcpp::Publisher<dvs_msgs::msg::EventMagStruct>::SharedPtr event_struct_pub_;
     rclcpp::Publisher<dvs_msgs::msg::EventImage>::SharedPtr event_image_pub_;
     // rclcpp::Publisher<> event_size_pub_;
 	rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
@@ -136,6 +137,8 @@ private:
 	float32x4_t gs2 = {0.013064233,0.058549832,0.096532353,0.058549832}; // 32bit floating point numbers have 
 	float32x4_t gs3 = {0.021539279,0.096532353,0.159154943,0.096532353}; // between 6 and 7 digits of precision, 
 																		 // regardless of exponent
+	// ------ Magnetometer related
+	float32_t prev_theta_;
 	
 };
 

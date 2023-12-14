@@ -228,6 +228,14 @@ void change_cycle_count(uint16_t newCC)
 	write_addr(RM3100_CCX1_REG, 6, tx);
 }
 
+int get_cycle_count(){
+	uint8_t rx[7] = {
+		0,
+	};
+	read_addr(RM3100_CCX1_REG, 6, rx);
+	return rx[2]+rx[4]*1000+rx[6]*1000000;
+}
+
 int read_handshake()
 {
 	uint8_t rx[2] = {

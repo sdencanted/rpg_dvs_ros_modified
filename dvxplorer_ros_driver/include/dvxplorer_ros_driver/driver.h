@@ -13,7 +13,7 @@
 // messages
 #include <dvs_msgs/Event.h>
 #include <dvs_msgs/EventArray.h>
-#include <dvs_msgs/EventStruct.h>
+#include <dvs_msgs/EventMagStruct.h>
 #include <dvs_msgs/EventImage.h>
 #include <sensor_msgs/Imu.h>
 #include <std_msgs/Empty.h>

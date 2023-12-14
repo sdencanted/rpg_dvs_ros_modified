@@ -82,7 +82,7 @@ struct MeasurementsUt single_measurement_ut(uint16_t cycleCount);
 
 //newCC is the new cycle count value (16 bits) to change the data acquisition
 void change_cycle_count( uint16_t newCC);
-
+int get_cycle_count();
 int read_handshake();
 
 int start_mag();
