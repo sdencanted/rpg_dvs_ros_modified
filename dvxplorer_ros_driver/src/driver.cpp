@@ -262,6 +262,30 @@ void DvxplorerRosDriver::callback(dvxplorer_ros_driver::DVXplorer_ROS_DriverConf
 		caerDeviceConfigSet(dvxplorer_handle_, DVX_DVS_CHIP, DVX_DVS_CHIP_EVENT_OFF_ONLY, config.polarity_off_only);
 	}
 
+	// -- change eFPS -----------------------------------------------------------------------------------------------
+	caerDeviceConfigSet(dvxplorer_handle_, DVX_DVS_CHIP, DVX_DVS_CHIP_DTAG_CONTROL, DVX_DVS_CHIP_DTAG_CONTROL_STOP);
+
+	//5000 efps variable
+	// caerDeviceConfigSet(dvxplorer_handle_,DVX_DVS_CHIP, DVX_DVS_CHIP_FIXED_READ_TIME_ENABLE, false);
+	// caerDeviceConfigSet(dvxplorer_handle_,DVX_DVS_CHIP, DVX_DVS_CHIP_TIMING_ED, 7);        // 7µs T_ED.
+	// caerDeviceConfigSet(dvxplorer_handle_,DVX_DVS_CHIP, DVX_DVS_CHIP_TIMING_NEXT_SEL, 15); // Safe default.
+
+	//15000 efps variable
+	caerDeviceConfigSet(dvxplorer_handle_, DVX_DVS_CHIP, DVX_DVS_CHIP_FIXED_READ_TIME_ENABLE, false);
+	caerDeviceConfigSet(dvxplorer_handle_, DVX_DVS_CHIP, DVX_DVS_CHIP_TIMING_ED, 1);       // 1µs T_ED, minimum safe value.
+	caerDeviceConfigSet(dvxplorer_handle_, DVX_DVS_CHIP, DVX_DVS_CHIP_TIMING_NEXT_SEL, 5); // Smallest NEXT_SEL value.
+
+
+	//100 epfps
+	// caerDeviceConfigSet(dvxplorer_handle_, DVX_DVS_CHIP, DVX_DVS_CHIP_TIMING_READ_FIXED, 45000);
+	// caerDeviceConfigSet(dvxplorer_handle_, DVX_DVS_CHIP, DVX_DVS_CHIP_FIXED_READ_TIME_ENABLE, true);
+	// caerDeviceConfigSet(dvxplorer_handle_, DVX_DVS_CHIP, DVX_DVS_CHIP_TIMING_NEXT_SEL, 15); // Safe default.
+	// caerDeviceConfigSet(dvxplorer_handle_, DVX_DVS_CHIP, DVX_DVS_CHIP_TIMING_ED, 9100);
+
+	caerDeviceConfigSet(dvxplorer_handle_, DVX_DVS_CHIP, DVX_DVS_CHIP_DTAG_CONTROL, DVX_DVS_CHIP_DTAG_CONTROL_START);
+	// -- end change eFPS -----------------------------------------------------------------------------------------------
+
+	
 	// DVS Region Of Interest.
 	if (level & (0x01 << 3)) {
 		auto a = caerDeviceConfigSet(dvxplorer_handle_, DVX_DVS_CHIP_CROPPER, DVX_DVS_CHIP_CROPPER_ENABLE, config.roi_enabled);
@@ -357,22 +381,28 @@ void DvxplorerRosDriver::readout() {
 
 					const int numEvents = caerEventPacketHeaderGetEventNumber(packetHeader);
 					
-					float a_local[160000] = {0};
+					caerPolarityEvent first_event = caerPolarityEventPacketGetEvent(polarity, 0);
+					int64_t first_timestamp= caerPolarityEventGetTimestamp64(first_event, polarity);
+					event_struct_msg->eventFirstTime.data=first_timestamp;
+					// float a_local[160000] = {0};
 					#pragma omp parallel num_threads(4) // 4 threads is the minimum number of threads to achieve 100hz
 					{
 						std::vector<uint16_t> eventArr_local;
-						std::vector<float> eventTime_local;
-						#pragma omp for schedule(static) reduction(+:a_local) 
+						// std::vector<float> eventTime_local;
+						std::vector<uint16_t> eventTime_local;
+						// #pragma omp for schedule(static) reduction(+:a_local)
+						#pragma omp for schedule(static)
 						for (int j = 0; j < numEvents; j++) {
 							// Get full timestamp and addresses of first event.
 							caerPolarityEvent event = caerPolarityEventPacketGetEvent(polarity, j);
-							if (j == 0) {
-								event_image_msg->header.stamp = reset_time_
-								+ ros::Duration().fromNSec(caerPolarityEventGetTimestamp64(event, polarity) * 1000);
-							}
+							// if (j == 0) {
+							// 	event_image_msg->header.stamp = reset_time_
+							// 	+ ros::Duration().fromNSec(caerPolarityEventGetTimestamp64(event, polarity) * 1000);
+							// }
 							uint16_t eX = caerPolarityEventGetX(event)-120;
 							uint16_t eY = caerPolarityEventGetY(event)-40;
-							float eT = caerPolarityEventGetTimestamp64(event, polarity)/1e6;
+							uint16_t eT=caerPolarityEventGetTimestamp64(event, polarity)-first_timestamp;
+							// float eT = caerPolarityEventGetTimestamp64(event, polarity)/1e6;
 							uint32_t key = eY*400+eX;
 
 							// If event is not one of the hot pixels, push back
@@ -380,35 +410,35 @@ void DvxplorerRosDriver::readout() {
 
 								eventArr_local.push_back(eX);
 								eventArr_local.push_back(eY);
-								eventArr_local.push_back(caerPolarityEventGetPolarity(event));
+								// eventArr_local.push_back(caerPolarityEventGetPolarity(event));
 								eventTime_local.push_back(eT);
 
-								// Load into neon registers
-								const float32x4_t v1 = vld1q_f32(a_local+key-802);
-								const float32x4_t v2 = vld1q_f32(a_local+key-402);
-								const float32x4_t v3 = vld1q_f32(a_local+key-2);
-								const float32x4_t v4 = vld1q_f32(a_local+key+398);
-								const float32x4_t v5 = vld1q_f32(a_local+key+798);
+								// // Load into neon registers
+								// const float32x4_t v1 = vld1q_f32(a_local+key-802);
+								// const float32x4_t v2 = vld1q_f32(a_local+key-402);
+								// const float32x4_t v3 = vld1q_f32(a_local+key-2);
+								// const float32x4_t v4 = vld1q_f32(a_local+key+398);
+								// const float32x4_t v5 = vld1q_f32(a_local+key+798);
 
-								// vectorized code (four at once)
-								// add and return to c memory
-								float32x4_t sum = vaddq_f32(v1, gs1);
-								vst1q_f32(a_local+key-802, sum);
-								sum = vaddq_f32(v2, gs2);
-								vst1q_f32(a_local+key-402, sum);
-								sum = vaddq_f32(v3, gs3);
-								vst1q_f32(a_local+key-2, sum);
-								sum = vaddq_f32(v4, gs2);
-								vst1q_f32(a_local+key+398, sum);
-								sum = vaddq_f32(v5, gs1);
-								vst1q_f32(a_local+key+798, sum);
+								// // vectorized code (four at once)
+								// // add and return to c memory
+								// float32x4_t sum = vaddq_f32(v1, gs1);
+								// vst1q_f32(a_local+key-802, sum);
+								// sum = vaddq_f32(v2, gs2);
+								// vst1q_f32(a_local+key-402, sum);
+								// sum = vaddq_f32(v3, gs3);
+								// vst1q_f32(a_local+key-2, sum);
+								// sum = vaddq_f32(v4, gs2);
+								// vst1q_f32(a_local+key+398, sum);
+								// sum = vaddq_f32(v5, gs1);
+								// vst1q_f32(a_local+key+798, sum);
 
-								// scalar code for the remaining items.
-								a_local[key-798]+=0.002915024f;
-								a_local[key-398]+=0.013064233f;
-								a_local[key+2]+=0.021539279f;
-								a_local[key+402]+=0.013064233f;
-								a_local[key+802]+=0.002915024f;
+								// // scalar code for the remaining items.
+								// a_local[key-798]+=0.002915024f;
+								// a_local[key-398]+=0.013064233f;
+								// a_local[key+2]+=0.021539279f;
+								// a_local[key+402]+=0.013064233f;
+								// a_local[key+802]+=0.002915024f;
 							}
 						}
 
@@ -419,10 +449,10 @@ void DvxplorerRosDriver::readout() {
 							event_struct_msg->eventTime.data.insert(event_struct_msg->eventTime.data.end(), eventTime_local.begin(), eventTime_local.end());
 						}
 
-						#pragma omp for
-						for (int j = 0; j < 160000; j++) {
-							event_image_msg->data[j] = a_local[j];
-						}
+						// #pragma omp for
+						// for (int j = 0; j < 160000; j++) {
+						// 	event_image_msg->data[j] = a_local[j];
+						// }
 					}
 
 
@@ -449,16 +479,16 @@ void DvxplorerRosDriver::readout() {
                     count_R += 1;
 					// std_msgs::Int32 count_msg;
 					// count_msg.data = event_struct_msg->eventTime.data.size();
-					event_image_msg->size = event_struct_msg->eventTime.data.size();
+					// event_image_msg->size = event_struct_msg->eventTime.data.size();
 
                     // throttle event messages
                     if (count_R == reached)
                     {
                         event_struct_pub_.publish(event_struct_msg);
-                        event_image_pub_.publish(event_image_msg);
+                        // event_image_pub_.publish(event_image_msg);
                         // event_size_pub_.publish(count_msg);
                         event_struct_msg.reset();
-						event_image_msg.reset();
+						// event_image_msg.reset();
                         count_R = 0;
 						// std::cout << (int)reached << std::endl;
                     }
@@ -469,57 +499,57 @@ void DvxplorerRosDriver::readout() {
 						camera_info_pub_.publish(camera_info_msg);
 					}
 				}
-				else if (type == IMU6_EVENT) {
-					caerIMU6EventPacket imu = (caerIMU6EventPacket) packetHeader;
+				// else if (type == IMU6_EVENT) {
+				// 	caerIMU6EventPacket imu = (caerIMU6EventPacket) packetHeader;
 
-					const int numEvents = caerEventPacketHeaderGetEventNumber(packetHeader);
+				// 	const int numEvents = caerEventPacketHeaderGetEventNumber(packetHeader);
 
-					for (int j = 0; j < numEvents; j++) {
-						caerIMU6Event event = caerIMU6EventPacketGetEvent(imu, j);
+				// 	for (int j = 0; j < numEvents; j++) {
+				// 		caerIMU6Event event = caerIMU6EventPacketGetEvent(imu, j);
 
-						sensor_msgs::Imu msg;
+				// 		sensor_msgs::Imu msg;
 
-						// convert from g's to m/s^2 and align axes with camera frame
-						msg.linear_acceleration.x = -caerIMU6EventGetAccelX(event) * STANDARD_GRAVITY;
-						msg.linear_acceleration.y = caerIMU6EventGetAccelY(event) * STANDARD_GRAVITY;
-						msg.linear_acceleration.z = -caerIMU6EventGetAccelZ(event) * STANDARD_GRAVITY;
-						// convert from deg/s to rad/s and align axes with camera frame
-						msg.angular_velocity.x = -caerIMU6EventGetGyroX(event) / 180.0 * M_PI;
-						msg.angular_velocity.y = caerIMU6EventGetGyroY(event) / 180.0 * M_PI;
-						msg.angular_velocity.z = -caerIMU6EventGetGyroZ(event) / 180.0 * M_PI;
+				// 		// convert from g's to m/s^2 and align axes with camera frame
+				// 		msg.linear_acceleration.x = -caerIMU6EventGetAccelX(event) * STANDARD_GRAVITY;
+				// 		msg.linear_acceleration.y = caerIMU6EventGetAccelY(event) * STANDARD_GRAVITY;
+				// 		msg.linear_acceleration.z = -caerIMU6EventGetAccelZ(event) * STANDARD_GRAVITY;
+				// 		// convert from deg/s to rad/s and align axes with camera frame
+				// 		msg.angular_velocity.x = -caerIMU6EventGetGyroX(event) / 180.0 * M_PI;
+				// 		msg.angular_velocity.y = caerIMU6EventGetGyroY(event) / 180.0 * M_PI;
+				// 		msg.angular_velocity.z = -caerIMU6EventGetGyroZ(event) / 180.0 * M_PI;
 
-						// no orientation estimate: http://docs.ros.org/api/sensor_msgs/html/msg/Imu.html
-						msg.orientation_covariance[0] = -1.0;
+				// 		// no orientation estimate: http://docs.ros.org/api/sensor_msgs/html/msg/Imu.html
+				// 		msg.orientation_covariance[0] = -1.0;
 
-						// time
-						msg.header.stamp
-							= reset_time_ + ros::Duration().fromNSec(caerIMU6EventGetTimestamp64(event, imu) * 1000);
+				// 		// time
+				// 		msg.header.stamp
+				// 			= reset_time_ + ros::Duration().fromNSec(caerIMU6EventGetTimestamp64(event, imu) * 1000);
 
-						// frame
-						msg.header.frame_id = "base_link";
+				// 		// frame
+				// 		msg.header.frame_id = "base_link";
 
-						// IMU calibration
-						if (imu_calibration_running_) {
-							if (imu_calibration_samples_.size() < imu_calibration_sample_size_) {
-								imu_calibration_samples_.push_back(msg);
-							}
-							else {
-								imu_calibration_running_ = false;
-								updateImuBias();
-							}
-						}
+				// 		// IMU calibration
+				// 		if (imu_calibration_running_) {
+				// 			if (imu_calibration_samples_.size() < imu_calibration_sample_size_) {
+				// 				imu_calibration_samples_.push_back(msg);
+				// 			}
+				// 			else {
+				// 				imu_calibration_running_ = false;
+				// 				updateImuBias();
+				// 			}
+				// 		}
 
-						// bias correction
-						msg.linear_acceleration.x -= bias.linear_acceleration.x;
-						msg.linear_acceleration.y -= bias.linear_acceleration.y;
-						msg.linear_acceleration.z -= bias.linear_acceleration.z;
-						msg.angular_velocity.x -= bias.angular_velocity.x;
-						msg.angular_velocity.y -= bias.angular_velocity.y;
-						msg.angular_velocity.z -= bias.angular_velocity.z;
+				// 		// bias correction
+				// 		msg.linear_acceleration.x -= bias.linear_acceleration.x;
+				// 		msg.linear_acceleration.y -= bias.linear_acceleration.y;
+				// 		msg.linear_acceleration.z -= bias.linear_acceleration.z;
+				// 		msg.angular_velocity.x -= bias.angular_velocity.x;
+				// 		msg.angular_velocity.y -= bias.angular_velocity.y;
+				// 		msg.angular_velocity.z -= bias.angular_velocity.z;
 
-						imu_pub_.publish(msg);
-					}
-				}
+				// 		imu_pub_.publish(msg);
+				// 	}
+				// }
 			}
 
 			caerEventPacketContainerFree(packetContainer);

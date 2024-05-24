@@ -1,0 +1,7 @@
+<library path="lib/libdvxplorer_mc_ceres">
+  <class name="dvxplorer_mc_ceres/DvxplorerMcCeresNodelet" type="dvxplorer_mc_ceres::DvxplorerMcCeresNodelet" base_class_type="nodelet::Nodelet">
+    <description>
+      A nodelet wrapper for the dvxplorer_mc_ceres.
+    </description>
+  </class>
+</library>
