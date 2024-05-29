@@ -8,46 +8,11 @@ namespace dvxplorer_mc_ceres
 
 	void MyProcessor::eventCD(uint64_t t, uint16_t ex, uint16_t ey, uint8_t)
 	{
-		if (frame_processed_)
-		{
-			if (t < t_new_frame_)
-			{
-				return;
-			}
-			else{
-				frame_processed_=false;
-				reached_first_midpoint_frame_=false;
-				reached_last_midpoint_frame_=false;
-				last_event_idx_==-1;
-			}
-		}
-		else if (reached_first_midpoint_frame_&&!reached_last_midpoint_frame_)
-		{
-			if(t>t_midpoint_){
-				reached_last_midpoint_frame_=true;
-				last_event_idx_=(mc_gr->num_events_+first_midpoint_event_idx_)/2 + mc_gr->max_num_events_/2;
-			}
-		}
-		else if (t_new_frame_ == -1)
-		{
-			t_new_frame_ = t;
-			t_midpoint_=t_new_frame_+0.5e-2;
-		}
-		else if(!reached_first_midpoint_frame_&&t>=t_midpoint_){
-			reached_first_midpoint_frame_=true;
-			first_midpoint_event_idx_=mc_gr_->num_events_;
-		}
-
-
 		// TODO: equal events before and after middle ts
-		//  mc_gr_->AddData(t,ex-440,ey-160);
 		mc_gr_->AddData(t, ex + x_offset_, ey + y_offset_);
-		// *outfile_<<t<<","<<ex<<","<<ey<<","<<0<<std::endl;
-		// if (mc_gr_->ReadyToMC())
-		if (mc_gr_->num_events_==last_event_idx_)
+		if (mc_gr_->ReadyToMC())
 		{
 			idx++;
-
 			// Initial guess
 			float fx;
 			try

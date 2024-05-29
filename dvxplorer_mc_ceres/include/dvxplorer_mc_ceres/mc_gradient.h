@@ -138,22 +138,22 @@ public:
     }
     void allocate()
     {
-        checkCudaErrors(cudaMallocHost(&x_unprojected_, max_num_events_ * sizeof(float)));
-        checkCudaErrors(cudaMallocHost(&y_unprojected_, max_num_events_ * sizeof(float)));
-        checkCudaErrors(cudaMalloc(&x_prime_, max_num_events_ * sizeof(float)));
-        checkCudaErrors(cudaMalloc(&y_prime_, max_num_events_ * sizeof(float)));
-        checkCudaErrors(cudaMallocHost(&x_, max_num_events_ * sizeof(float)));
-        checkCudaErrors(cudaMallocHost(&y_, max_num_events_ * sizeof(float)));
-        checkCudaErrors(cudaMallocHost(&t_, max_num_events_ * sizeof(float)));
+        checkCudaErrors(cudaMallocHost(&x_unprojected_, target_num_events_ * sizeof(float)));
+        checkCudaErrors(cudaMallocHost(&y_unprojected_, target_num_events_ * sizeof(float)));
+        checkCudaErrors(cudaMalloc(&x_prime_, target_num_events_ * sizeof(float)));
+        checkCudaErrors(cudaMalloc(&y_prime_, target_num_events_ * sizeof(float)));
+        checkCudaErrors(cudaMallocHost(&x_, target_num_events_ * sizeof(float)));
+        checkCudaErrors(cudaMallocHost(&y_, target_num_events_ * sizeof(float)));
+        checkCudaErrors(cudaMallocHost(&t_, target_num_events_ * sizeof(float)));
         allocated_ = true;
     }
     void ReplaceData(std::vector<float> &x, std::vector<float> &y, std::vector<float> &t, const int num_events)
     {
 
         num_events_ = num_events;
-        if (!allocated_ || max_num_events_ < num_events_)
+        if (!allocated_ || target_num_events_ < num_events_)
         {
-            max_num_events_ = std::max(num_events_, 30000);
+            target_num_events_ = std::max(num_events_, 30000);
             if (allocated_)
             {
                 deallocate();
@@ -179,9 +179,9 @@ public:
     void ReplaceData(std::vector<float> &x, std::vector<float> &y, std::vector<double> &t, const int num_events)
     {
         num_events_ = num_events;
-        if (!allocated_ || max_num_events_ < num_events_)
+        if (!allocated_ || target_num_events_ < num_events_)
         {
-            max_num_events_ = std::max(num_events_, 30000);
+            target_num_events_ = std::max(num_events_, 30000);
             if (allocated_)
             {
                 deallocate();
@@ -208,9 +208,9 @@ public:
     void ReplaceData(const dvs_msgs::EventStruct::ConstPtr &msg)
     {
         num_events_ = msg->eventTime.data.size();
-        if (!allocated_ || max_num_events_ < num_events_)
+        if (!allocated_ || target_num_events_ < num_events_)
         {
-            max_num_events_ = std::max(num_events_, 30000);
+            target_num_events_ = std::max(num_events_, 30000);
             if (allocated_)
             {
                 deallocate();
@@ -236,38 +236,53 @@ public:
     }
     void AddData(uint64_t t, uint16_t x, uint16_t y)
     {
+        if (first_event_)
+        {
+            first_event_ = false;
+            approx_middle_t_ = t + 5 * 1e6;
+        }
+        else if (!reached_middle_t_ && t > approx_middle_t_)
+        {
+            reached_middle_t_ = true;
+            actual_middle_t_ = t;
 
-            if (evk_middle_t_ == 0)
+            // capture first
+            middle_t_first_idx_ = num_events_;
+        }
+        else if (!after_middle_t_ && reached_middle_t_ && t > actual_middle_t_)
+        {
+            after_middle_t_ = true;
+            final_event_idx_ = middle_t_first_event_idx_ + num_events_;
+
+            // too little events
+            if (final_event_idx_ < target_num_events_)
             {
-                evk_middle_t_ = t + 5 * 1e6;
-                // evk_middle_t_=t+2.5*1e6;
+                ClearEvents();
+                return;
             }
-            t_[num_events_] = ((int64_t)t - evk_middle_t_) / 1e9;
+        }
+        t_[num_events_ % target_num_events_] = ((int64_t)t - approx_middle_t_) / 1e9;
 
-            // ROS_INFO("%f %ld %ld",t_[num_events_],t,evk_middle_t_);
-            x_unprojected_[num_events_] = (x - cx_) / fx_;
-            y_unprojected_[num_events_] = (y - cy_) / fy_;
-            num_events_++;
-        
+        // ROS_INFO("%f %ld %ld",t_[num_events_],t,evk_middle_t_);
+        x_unprojected_[num_events_ % target_num_events_] = (x - cx_) / fx_;
+        y_unprojected_[num_events_ % target_num_events_] = (y - cy_) / fy_;
+        num_events_++;
     }
     bool ReadyToMC()
     {
-        if (num_events_ == max_num_events_)
+        if (after_middle_t_ && num_events_ > final_event_idx_)
         {
-            return true;
-        }
-        else if (t_[num_events_ - 1] >= 5e-3)
-        {
-            // else if(t_[num_events_-1]>=2.5e-3){
-            // ROS_INFO("%f",t_[num_events_-1]);
             return true;
         }
         return false;
     }
     void ClearEvents()
     {
-        evk_middle_t_ = 0;
         num_events_ = 0;
+        first_event_ = true;
+        reached_middle_t_ = false;
+        after_middle_t_ = false;
+        approx_middle_t_ += 1e5;
     }
     bool Evaluate(const double *const parameters,
                   double *residuals,
@@ -388,7 +403,12 @@ public:
     int height_;
     int width_;
     int num_events_ = 0;
-    int max_num_events_ = 10000000;
+    int target_num_events_ = 30000;
+
+    bool first_event_ = true;
+    bool reached_middle_t_ = false;
+    bool after_middle_t_ = false;
+
     float *image_ = NULL;
     // float *image_del_theta_x_ = NULL;
     // float *image_del_theta_y_ = NULL;
@@ -409,7 +429,10 @@ public:
     bool running = true;
     cudaStream_t stream_[2];
     bool allocated_ = false;
-    int64_t evk_middle_t_ = 0;
+    int64_t approx_middle_t_ = 0;
+    int64_t actual_middle_t_ =0;
+    int middle_t_first_event_idx_=0;
+    int final_event_idx_=0;
 };
 
 class McGradientInterface final : public ceres::FirstOrderFunction

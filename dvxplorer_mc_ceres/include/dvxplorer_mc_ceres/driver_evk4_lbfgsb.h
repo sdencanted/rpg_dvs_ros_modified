@@ -85,7 +85,7 @@ namespace dvxplorer_mc_ceres
     ros::Publisher compensated_image_pub_;
     std::string ns;
     ros::NodeHandle nh_;
-    float t_new_frame_=-1;
+    // float t_new_frame_=-1;
   };
 
   class DvxplorerMcCeres
