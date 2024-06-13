@@ -70,29 +70,24 @@ public:
 
         cudaStreamCreate(&stream_[0]);
         cudaStreamCreate(&stream_[1]);
-        // create pinned memory for x,y,t,image,image dels
 
+        allocateImageRelated_();
+        checkCudaErrors(cudaMalloc(&means_, 4 * sizeof(float)));
+    }
+    void allocateImageRelated_(){
+        // create pinned memory for x,y,t,image,image dels
         checkCudaErrors(cudaMalloc(&image_, (height_) * (width_) * sizeof(float) * 4));
-        int gridSize = std::min(512, (height * width + 512 - 1) / 512);
-        // checkCudaErrors(cudaMallocHost((void **)&contrast_block_sum_, 128 * sizeof(float)));
-        // checkCudaErrors(cudaMalloc((void **)&contrast_del_x_block_sum_, 128 * sizeof(float)));
-        // checkCudaErrors(cudaMalloc((void **)&contrast_del_y_block_sum_, 128 * sizeof(float)));
-        // checkCudaErrors(cudaMalloc((void **)&contrast_del_z_block_sum_, 128 * sizeof(float)));
+        int gridSize = std::min(512, (height_ * width_ + 512 - 1) / 512);
         checkCudaErrors(cudaMallocHost((void **)&contrast_block_sum_, gridSize * sizeof(float)));
         checkCudaErrors(cudaMalloc((void **)&contrast_del_x_block_sum_, gridSize * sizeof(float)));
         checkCudaErrors(cudaMalloc((void **)&contrast_del_y_block_sum_, gridSize * sizeof(float)));
         checkCudaErrors(cudaMalloc((void **)&contrast_del_z_block_sum_, gridSize * sizeof(float)));
-        checkCudaErrors(cudaMalloc(&means_, 4 * sizeof(float)));
 
         cudaMemsetAsync(image_, 0, (height_) * (width_) * sizeof(float) * 4);
         cudaMemsetAsync(contrast_block_sum_, 0, gridSize * sizeof(float));
         cudaMemsetAsync(contrast_del_x_block_sum_, 0, gridSize * sizeof(float));
         cudaMemsetAsync(contrast_del_y_block_sum_, 0, gridSize * sizeof(float));
         cudaMemsetAsync(contrast_del_z_block_sum_, 0, gridSize * sizeof(float));
-
-        // ReplaceData(x, y, t, num_events_);
-
-        // for uncompensated image
     }
     void tryCudaAllocMapped(float **ptr, size_t size, std::string ptr_name)
     {
@@ -102,242 +97,121 @@ public:
             std::cout << "could not allocate cuda mem for " << ptr_name << std::endl;
         }
     }
-    void ReplaceData(std::vector<float> &x, std::vector<float> &y, std::vector<float> &t, const int num_events)
+    void reset(int new_height=0,int new_width=0, int new_x_offset=0,int new_y_offset=0)
     {
-        
-        num_events_ = num_events;
-        if (!allocated_ || max_num_events_ < num_events_)
-        {
-            max_num_events_ = std::max(num_events_, 30000);
-            if (allocated_)
-            {
-                checkCudaErrors(cudaFreeHost(x_unprojected_));
-                checkCudaErrors(cudaFreeHost(y_unprojected_));
-                checkCudaErrors(cudaFree(x_prime_));
-                checkCudaErrors(cudaFree(y_prime_));
-                checkCudaErrors(cudaFreeHost(t_));
-                checkCudaErrors(cudaFreeHost(x_));
-                checkCudaErrors(cudaFreeHost(y_));
-            }
-
-            checkCudaErrors(cudaMallocHost(&x_unprojected_, max_num_events_ * sizeof(float)));
-            checkCudaErrors(cudaMallocHost(&y_unprojected_, max_num_events_ * sizeof(float)));
-            checkCudaErrors(cudaMalloc(&x_prime_, max_num_events_ * sizeof(float)));
-            checkCudaErrors(cudaMalloc(&y_prime_, max_num_events_ * sizeof(float)));
-            checkCudaErrors(cudaMallocHost(&x_, max_num_events_ * sizeof(float)));
-            checkCudaErrors(cudaMallocHost(&y_, max_num_events_ * sizeof(float)));
-            checkCudaErrors(cudaMallocHost(&t_, max_num_events_ * sizeof(float)));
-
-            // cudaMalloc(&x_, num_events_ * sizeof(float));
-            // cudaMalloc(&y_, num_events_ * sizeof(float));
-            cudaMemcpyAsync(x_, x.data(), num_events_ * sizeof(float), cudaMemcpyDefault);
-            cudaMemcpyAsync(y_, y.data(), num_events_ * sizeof(float), cudaMemcpyDefault);
-            allocated_ = true;
+        if(new_height>0 && new_width>0){
+            height_=new_height;
+            width_=new_width;
         }
-        // // precalculate tX-t0 and store to t (potentially redo in CUDA later on)
-        // // float scale=t[num_events-1]-t[0];
-        // float scale = 1e6;
-        // // find the middle t
-        // float middle_t = (t[num_events_ - 1] + t[0]) / 2;
-        // precalculate unprojected x and y and store to x/y_unprojected (potentially redo in CUDA later on)
-        cudaMemcpyAsync(t_, t.data(), num_events_ * sizeof(float), cudaMemcpyDefault);
-        for (int i = 0; i < num_events_; i++)
-        {
-            // t_[i] = (t[i] - middle_t) / scale;
-            x_unprojected_[i] = (x[i] - cx_) / fx_;
-            y_unprojected_[i] = (y[i] - cy_) / fy_;
-        }
-    }
-
-    void ReplaceData(std::vector<float> &x, std::vector<float> &y, std::vector<double> &t, const int num_events)
-    {
-        num_events_ = num_events;
-        if (!allocated_ || max_num_events_ < num_events_)
-        {
-            max_num_events_ = std::max(num_events_, 30000);
-            if (allocated_)
-            {
-                checkCudaErrors(cudaFreeHost(x_unprojected_));
-                checkCudaErrors(cudaFreeHost(y_unprojected_));
-                checkCudaErrors(cudaFree(x_prime_));
-                checkCudaErrors(cudaFree(y_prime_));
-                checkCudaErrors(cudaFreeHost(t_));
-                checkCudaErrors(cudaFreeHost(x_));
-                checkCudaErrors(cudaFreeHost(y_));
-            }
-
-            checkCudaErrors(cudaMallocHost(&x_unprojected_, max_num_events_ * sizeof(float)));
-            checkCudaErrors(cudaMallocHost(&y_unprojected_, max_num_events_ * sizeof(float)));
-            checkCudaErrors(cudaMalloc(&x_prime_, max_num_events_ * sizeof(float)));
-            checkCudaErrors(cudaMalloc(&y_prime_, max_num_events_ * sizeof(float)));
-            checkCudaErrors(cudaMallocHost(&x_, max_num_events_ * sizeof(float)));
-            checkCudaErrors(cudaMallocHost(&y_, max_num_events_ * sizeof(float)));
-            checkCudaErrors(cudaMallocHost(&t_, max_num_events_ * sizeof(float)));
-
-            // cudaMalloc(&x_, num_events_ * sizeof(float));
-            // cudaMalloc(&y_, num_events_ * sizeof(float));
-            allocated_ = true;
-        }
-        cudaMemcpyAsync(x_, x.data(), num_events_ * sizeof(float), cudaMemcpyDefault);
-        cudaMemcpyAsync(y_, y.data(), num_events_ * sizeof(float), cudaMemcpyDefault);
-        // precalculate tX-t0 and store to t (potentially redo in CUDA later on)
-        // float scale=t[num_events-1]-t[0];
-        // find the middle t
-        double middle_t = (t.back() + t.front()) / 2;
-        // precalculate unprojected x and y and store to x/y_unprojected (potentially redo in CUDA later on)
-        for (int i = 0; i < num_events_; i++)
-        {
-            t_[i] = (t[i] - middle_t);
-            x_unprojected_[i] = (x[i] - cx_) / fx_;
-            y_unprojected_[i] = (y[i] - cy_) / fy_;
-        }
-        // std::cout<<"time "<<t_[0]<<" "<<t_[num_events_-1]<<std::endl;
-    }
-    void reset()
-    {
-        // cudaStreamDestroy(stream_[0]);
-        // cudaStreamDestroy(stream_[1]);
-        // cudaStreamCreate(&stream_[0]);
-        // cudaStreamCreate(&stream_[1]);
-        // create pinned memory for x,y,t,image,image dels
-        // cudaFree(image_);
-        // checkCudaErrors(cudaMalloc(&image_, (height_) * (width_) * sizeof(float) * 4));
-        int gridSize = std::min(512, (height_ * width_ + 512 - 1) / 512);
-        
-        // cudaFreeHost(contrast_block_sum_);
-        // cudaFree(contrast_del_x_block_sum_);
-        // cudaFree(contrast_del_y_block_sum_);
-        // cudaFree(contrast_del_z_block_sum_);
-        // cudaFree(means_);
-        // checkCudaErrors(cudaMallocHost((void **)&contrast_block_sum_, gridSize * sizeof(float)));
-        // checkCudaErrors(cudaMalloc((void **)&contrast_del_x_block_sum_, gridSize * sizeof(float)));
-        // checkCudaErrors(cudaMalloc((void **)&contrast_del_y_block_sum_, gridSize * sizeof(float)));
-        // checkCudaErrors(cudaMalloc((void **)&contrast_del_z_block_sum_, gridSize * sizeof(float)));
-        // checkCudaErrors(cudaMalloc(&means_, 4 * sizeof(float)));
-
-        cudaMemset(image_, 0, (height_) * (width_) * sizeof(float) * 4);
-        // cudaMemset(contrast_block_sum_, 0, gridSize * sizeof(float));
-        // cudaMemset(contrast_del_x_block_sum_, 0, gridSize * sizeof(float));
-        // cudaMemset(contrast_del_y_block_sum_, 0, gridSize * sizeof(float));
-        // cudaMemset(contrast_del_z_block_sum_, 0, gridSize * sizeof(float));
-
-        // ReplaceData(x, y, t, num_events_);
-
-        // for uncompensated image
+        x_offset_=new_x_offset;
+        y_offset_=new_y_offset;
+        checkCudaErrors(cudaFree(image_));
+        checkCudaErrors(cudaFreeHost(contrast_block_sum_));
+        checkCudaErrors(cudaFree(contrast_del_x_block_sum_));
+        checkCudaErrors(cudaFree(contrast_del_y_block_sum_));
+        checkCudaErrors(cudaFree(contrast_del_z_block_sum_));
+        allocateImageRelated_();
     }
     void allocate()
     {
-        ROS_INFO("allocating");
-        cudaMallocHost(&x_unprojected_, max_num_events_ * sizeof(float));
-        cudaMallocHost(&y_unprojected_, max_num_events_ * sizeof(float));
-        cudaMalloc(&x_prime_, max_num_events_ * sizeof(float));
-        cudaMalloc(&y_prime_, max_num_events_ * sizeof(float));
-        checkCudaErrors(cudaMallocHost(&x_, max_num_events_ * sizeof(float)));
-        checkCudaErrors(cudaMallocHost(&y_, max_num_events_ * sizeof(float)));
-        cudaMallocHost(&t_, max_num_events_ * sizeof(float));
+        // ROS_INFO("allocating");
+        checkCudaErrors(cudaMallocHost(&x_unprojected_, target_num_events_ * sizeof(float)));
+        checkCudaErrors(cudaMallocHost(&y_unprojected_, target_num_events_ * sizeof(float)));
+        checkCudaErrors(cudaMalloc(&x_prime_, target_num_events_ * sizeof(float)));
+        checkCudaErrors(cudaMalloc(&y_prime_, target_num_events_ * sizeof(float)));
+        checkCudaErrors(cudaMallocHost(&x_, target_num_events_ * sizeof(float)));
+        checkCudaErrors(cudaMallocHost(&y_, target_num_events_ * sizeof(float)));
+        checkCudaErrors(cudaMallocHost(&t_, target_num_events_ * sizeof(float)));
         allocated_ = true;
     }
-    // void ReplaceData(const dv::AddressableEventStorage<dv::Event, dv::EventPacket> &data)
-    // {
-    //     num_events_ = data.size();
-    //     if (!allocated_ || max_num_events_ < num_events_)
-    //     {
-    //         max_num_events_ = std::max(num_events_, 30000);
-    //         if (allocated_)
-    //         {
-    //             cudaFreeHost(x_unprojected_);
-    //             cudaFreeHost(y_unprojected_);
-    //             cudaFree(x_prime_);
-    //             cudaFree(y_prime_);
-    //             checkCudaErrors(cudaFreeHost(x_));
-    //             checkCudaErrors(cudaFreeHost(y_));
-    //             cudaFreeHost(t_);
-    //         }
-
-    //         cudaMallocHost(&x_unprojected_, max_num_events_ * sizeof(float));
-    //         cudaMallocHost(&y_unprojected_, max_num_events_ * sizeof(float));
-    //         cudaMalloc(&x_prime_, max_num_events_ * sizeof(float));
-    //         cudaMalloc(&y_prime_, max_num_events_ * sizeof(float));
-    //         checkCudaErrors(cudaMallocHost(&x_, max_num_events_ * sizeof(float)));
-    //         checkCudaErrors(cudaMallocHost(&y_, max_num_events_ * sizeof(float)));
-    //         cudaMallocHost(&t_, max_num_events_ * sizeof(float));
-    //         allocated_ = true;
-    //     }
-    //     // precalculate tX-t0 and store to t (potentially redo in CUDA later on)
-    //     // float scale=t[num_events-1]-t[0];
-    //     float scale = 1e6;
-    //     // find the middle t
-
-    //     int64_t middle_t = (data.back().timestamp() + data.front().timestamp()) / 2;
-    //     // precalculate unprojected x and y and store to x/y_unprojected (potentially redo in CUDA later on)
-    //     int i = 0;
-
-    //     // cudaMemcpyAsync(x_,coords.data(),num_events_*sizeof(float),cudaMemcpyDefault);
-    //     // cudaMemcpyAsync(y_,coords.data()+num_events_,num_events_*sizeof(float),cudaMemcpyDefault);
-    //     for (auto event : data)
-    //     {
-    //         t_[i] = (event.timestamp() - middle_t) / scale;
-    //         // std::cout<<t_[i]<<" "<<event.timestamp()<<" "<<middle_t<<" "<<(event.timestamp() - middle_t)<<" "<<scale<<std::endl;
-    //         x_unprojected_[i] = (event.x() - cx_) / fx_;
-    //         y_unprojected_[i] = (event.y() - cy_) / fy_;
-    //         x_[i] = event.x();
-    //         y_[i] = event.y();
-    //         i++;
-    //     }
-    //     // std::cout << i << " events loaded" << t_[0] << " " << t_[num_events_ - 1] << " " << data.back().timestamp() << " " << data.front().timestamp() << std::endl;
-    // }
     bool Evaluate(const double *const parameters,
                   double *residuals,
                   double *gradient) const 
     {
         // std::cout<<num_events_<<std::endl;
-        fillImage(fx_, fy_, cx_, cy_, height_, width_, num_events_, x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_, parameters[0], parameters[1], parameters[2], contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_);
+        fillImage(fx_, fy_, cx_, cy_, height_, width_, std::min(target_num_events_,num_events_), x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_, parameters[0], parameters[1], parameters[2], contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_,x_offset_,y_offset_);
 
         getContrastDelBatchReduce(image_, residuals, gradient, height_, width_,
-                                  contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_, means_, num_events_, stream_);
-        ROS_INFO("results for iter %d rot %f %f %f con %f grad %f %f %f",iterations,parameters[0],parameters[1],parameters[2],residuals[0],gradient[0],gradient[1],gradient[2]);
+                                  contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_, means_, std::min(target_num_events_,num_events_), stream_);
+        // ROS_INFO("results for iter %d rot %f %f %f con %f grad %f %f %f",iterations,parameters[0],parameters[1],parameters[2],residuals[0],gradient[0],gradient[1],gradient[2]);
         // std::cout<<"results for iter "<<iterations<< "rot "<<parameters[0]<<" "<<parameters[1]<<" "<<parameters[2]<<" con";
         // std::cout<<residuals[0]<<" grads "<<gradient[0]<<" "<<gradient[1]<<" "<<gradient[2]<<std::endl;
 
         return true;
     }
+    uint64_t GetMiddleT(){
+        return approx_middle_t_;
+    }
+    void setOffsets(int x_offset,int y_offset){
+        x_offset_=x_offset;
+        y_offset_=y_offset;
+    }
     void AddData(uint64_t t, uint16_t x, uint16_t y)
     {
-
-            if (evk_middle_t_ == 0)
-            {
-                evk_middle_t_ = t + 5 * 1e6;
-                // evk_middle_t_=t+2.5*1e6;
-            }
-            t_[num_events_] = ((int64_t)t - evk_middle_t_) / 1e9;
-
-            // ROS_INFO("%f %ld %ld",t_[num_events_],t,evk_middle_t_);
-            x_unprojected_[num_events_] = (x - cx_) / fx_;
-            y_unprojected_[num_events_] = (y - cy_) / fy_;
-            num_events_++;
-        
-    }
-    
-    bool ReadyToMC()
-    {
-        if (num_events_ == max_num_events_)
+        if (first_event_)
         {
-            ROS_INFO("max events reached at %fms in",t_[num_events_ - 1]*1000);
-            return true;
+            first_event_ = false;
+            // modulo to make timestamp round up to nearest 10ms for viewing convenience
+            approx_middle_t_ = t + 10000000 - t%10000000;
+            approx_last_t_=approx_middle_t_+5000000;
         }
-        else if (t_[num_events_ - 1] >= 5e-3)
+        else if (!reached_middle_t_ && t > approx_middle_t_)
         {
-            // else if(t_[num_events_-1]>=2.5e-3){
-            // ROS_INFO("%f",t_[num_events_-1]);
+            reached_middle_t_ = true;
+            actual_middle_t_ = t;
+            // ROS_INFO("reached middle t at %d idx, approx %ld actual %ld",num_events_,approx_middle_t_,actual_middle_t_);
+
+            // capture first
+            middle_t_first_event_idx_ = num_events_;
+        }
+        else if (!after_middle_t_ && reached_middle_t_ && t > actual_middle_t_)
+        {
+            // ROS_INFO("left true middle t %ld at %d idx, t=%ld",actual_middle_t_,num_events_,t);
+            after_middle_t_ = true;
+            int middle_t_first_event_idx=num_events_;
+            int middle_idx=(middle_t_first_event_idx+middle_t_first_event_idx_)/2;
+            
+            // too little events
+            if (middle_idx < target_num_events_/2)
+            {
+                
+			// ROS_INFO("too little events before midpoint: %d/%d",middle_idx,target_num_events_/2);
+			// ROS_INFO("few events before midpoint: %d/%d",middle_idx,target_num_events_/2);
+                // ClearEvents();
+                // return;
+            }
+            final_event_idx_=middle_idx+target_num_events_/2;
+            // final_event_idx_ = (middle_t_first_event_idx_ + num_events_);
+
+        }
+        t_[num_events_ % target_num_events_] = ((int64_t)t - approx_middle_t_) / 1e9;
+
+        // ROS_INFO("%f %ld %ld",t_[num_events_],t,evk_middle_t_);
+        x_unprojected_[num_events_ % target_num_events_] = (x - cx_) / fx_;
+        y_unprojected_[num_events_ % target_num_events_] = (y - cy_) / fy_;
+        num_events_++;
+    }
+    bool ReadyToMC(uint64_t t)
+    {
+        if (after_middle_t_ && (num_events_ > final_event_idx_ || t >= approx_last_t_))
+        {
+            
+			// ROS_INFO("ready to MC, t=%f, idx=%d",t_[(num_events_%target_num_events_) -1] ,num_events_ );
             return true;
         }
         return false;
     }
+    bool SufficientEvents(){
+        return num_events_>min_num_events_;
+    }
     void ClearEvents()
     {
-        evk_middle_t_ = 0;
-        num_events_ = 0;
         iterations=0;
+        num_events_ = 0;
+        reached_middle_t_ = false;
+        after_middle_t_ = false;
+        approx_middle_t_ += 1e7;//10ms
+        approx_last_t_=approx_middle_t_+5000000;
     }
     void SumImage(){
         std::cout<< thrustMean(image_,height_,width_)<<std::endl;
@@ -345,22 +219,23 @@ public:
     void GenerateImage(const float *const rotations, uint8_t *output_image, float &contrast)
     {
         float *image;
-        warpEvents(fx_, fy_, cx_, cy_, height_, width_, num_events_, x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, rotations[0], rotations[1], rotations[2]);
+        warpEvents(fx_, fy_, cx_, cy_, height_, width_, std::min(num_events_,target_num_events_), x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, rotations[0], rotations[1], rotations[2],x_offset_,y_offset_);
         cudaMallocHost(&image, sizeof(float) * height_ * width_);
         std::fill_n(image, (height_) * (width_), 0);
-        fillImageKronecker(height_, width_, num_events_, x_prime_, y_prime_, image);
-        // fillImageKronecker(height_, width_, num_events_, x_, y_, image);
+        fillImageKronecker(height_, width_, std::min(num_events_,target_num_events_), x_prime_, y_prime_, image);
         cudaDeviceSynchronize();
+        
         float maximum = getMax(image, height_, width_);
+        rescaleIntensity(image,output_image,maximum,height_,width_);
         // std::cout<<maximum<<std::endl;
 
-        for (int i = 0; i < height_; i++)
-        {
-            for (int j = 0; j < width_; j++)
-            {
-                output_image[i * width_ + j] = (uint8_t)std::min(255.0, std::max(0.0, (255.0 * image[(i) * (width_) + j] / (maximum / 2))));
-            }
-        }
+        // for (int i = 0; i < height_; i++)
+        // {
+        //     for (int j = 0; j < width_; j++)
+        //     {
+        //         output_image[i * width_ + j] = (uint8_t)std::min(255.0, std::max(0.0, (255.0 * image[(i) * (width_) + j] / (maximum / 2))));
+        //     }
+        // }
         cudaFreeHost(image);
     };
     void GenerateUncompensatedImage(const float *const rotations, uint8_t *output_image, float &contrast)
@@ -368,7 +243,7 @@ public:
         float *image;
         cudaMallocHost(&image, sizeof(float) * height_ * width_);
         std::fill_n(image, (height_) * (width_), 0);
-        fillImageKronecker(height_, width_, num_events_, x_, y_, image);
+        fillImageKronecker(height_, width_, target_num_events_, x_, y_, image);
         cudaDeviceSynchronize();
         float maximum = getMax(image, height_, width_);
         // std::cout<<"un max "<<maximum<<std::endl;
@@ -447,7 +322,7 @@ public:
         for(int i=0;i<3;i++){
             grad[i]=gradients[i];
         }
-        std::cout<<fx<<std::endl;
+        // std::cout<<fx<<std::endl;
         iterations++;
         return (float)fx;
 
@@ -468,7 +343,13 @@ public:
     int height_;
     int width_;
     int num_events_=0;
-    int max_num_events_ = 100000;
+    int target_num_events_ = 30000;
+    int min_num_events_ = 1000;
+
+    int iterations=0;
+    bool first_event_ = true;
+    bool reached_middle_t_ = false;
+    bool after_middle_t_ = false;
     float *image_ = NULL;
     // float *image_del_theta_x_ = NULL;
     // float *image_del_theta_y_ = NULL;
@@ -489,8 +370,13 @@ public:
     bool running = true;
     cudaStream_t stream_[2];
     bool allocated_ = false;
-    int iterations=0;
-    int64_t evk_middle_t_ = 0;
+    int64_t approx_middle_t_ = 0;
+    int64_t approx_last_t_ = 0;
+    int64_t actual_middle_t_ =0;
+    int middle_t_first_event_idx_=0;
+    int final_event_idx_=0;
+    int x_offset_=0;
+    int y_offset_=0;
 };
 
 #endif // MC_GRADIENT_LBFGSPP_H

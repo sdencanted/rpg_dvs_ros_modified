@@ -48,7 +48,7 @@ struct SharedMemory
     }
 };
 
-__global__ void fillImage_(float fx, float fy, float cx, float cy, int height, int width, int num_events, const float *x_unprojected, const float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum)
+__global__ void fillImage_(float fx, float fy, float cx, float cy, int height, int width, int num_events, const float *x_unprojected, const float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int x_offset,int y_offset)
 {
 
     float image_sum = 0;
@@ -61,10 +61,10 @@ __global__ void fillImage_(float fx, float fy, float cx, float cy, int height, i
     // size_t i = size_t(blockIdx.x * blockDim.x + threadIdx.x);
     size_t num_threads_in_grid = size_t(blockDim.x * gridDim.x);
     // if (i < num_events)
-    float t_mid=(t[num_events-1]+t[0])/2;
+    float t_mid = (t[num_events - 1] + t[0]) / 2;
     for (size_t i = size_t(blockIdx.x * blockDim.x + threadIdx.x); i < num_events; i += num_threads_in_grid)
     {
-        float t_norm=t[i]-t_mid;
+        float t_norm = t[i] - t_mid;
         // calculate theta x,y,z
         float theta_x_t = rotation_x * t_norm;
         float theta_y_t = rotation_y * t_norm;
@@ -94,10 +94,6 @@ __global__ void fillImage_(float fx, float fy, float cx, float cy, int height, i
             float del_y_del_theta_z = fy_div_z_rotated_ti * x_unprojected[i];
             float del_y_del_theta_y = del_y_del_theta_z * y_rotated_norm;
 
-            // for (int row = max(1,y_round - 3); row < min(height,y_round + 4); row++)
-            // {
-            //     for (int col = max(1,x_round - 3); col < min(width,x_round + 4); col++)
-            //     {
             for (int row = max(1, y_round - 2); row < min(height, y_round + 3); row++)
             {
                 for (int col = max(1, x_round - 2); col < min(width, x_round + 3); col++)
@@ -105,9 +101,6 @@ __global__ void fillImage_(float fx, float fy, float cx, float cy, int height, i
                     // TODO: make a LUT for the values here rounded to a certain s.f. and see if there is a speed-up
                     float x_diff = col - x_prime[i];
                     float y_diff = row - y_prime[i];
-                    // float x_diff = col - x_unprojected[i];
-                    // float y_diff = row - y_unprojected[i];
-                    // gaussian = exp((-x_diff * x_diff - y_diff * y_diff) / 2) / sqrt(2 * M_PI);
                     gaussian = exp((-x_diff * x_diff - y_diff * y_diff) / 2);
                     int idx = (row - 1) * (width) + col - 1;
                     atomicAdd(&image[idx], gaussian);
@@ -231,7 +224,7 @@ __global__ void fillImage_(float fx, float fy, float cx, float cy, int height, i
     }
 }
 
-__global__ void warpEvents_(float fx, float fy, float cx, float cy, int height, int width, int num_events, const float *x_unprojected, const float *y_unprojected, float *x_prime, float *y_prime, float *t, const float rotation_x, const float rotation_y, const float rotation_z)
+__global__ void warpEvents_(float fx, float fy, float cx, float cy, int height, int width, int num_events, const float *x_unprojected, const float *y_unprojected, float *x_prime, float *y_prime, float *t, const float rotation_x, const float rotation_y, const float rotation_z, int x_offset,int y_offset)
 {
     // size_t i = size_t(blockIdx.x * blockDim.x + threadIdx.x);
     size_t num_threads_in_grid = size_t(blockDim.x * gridDim.x);
@@ -253,13 +246,13 @@ __global__ void warpEvents_(float fx, float fy, float cx, float cy, int height, 
         y_prime[i] = fy * y_rotated_norm + cy;
     }
 }
-void warpEvents(float fx, float fy, float cx, float cy, int height, int width, int num_events, float *x_unprojected, float *y_unprojected, float *x_prime, float *y_prime, float *t, const float rotation_x, const float rotation_y, const float rotation_z)
+void warpEvents(float fx, float fy, float cx, float cy, int height, int width, int num_events, float *x_unprojected, float *y_unprojected, float *x_prime, float *y_prime, float *t, const float rotation_x, const float rotation_y, const float rotation_z, int x_offset,int y_offset)
 {
     int blockSize = 512; // The launch configurator returned block size
     int gridSize;        // The actual grid size needed, based on input size
     gridSize = (num_events + blockSize - 1) / blockSize;
     int smemSize = blockSize * sizeof(float);
-    warpEvents_<<<gridSize, blockSize, smemSize>>>(fx, fy, cx, cy, height, width, num_events, x_unprojected, y_unprojected, x_prime, y_prime, t, rotation_x, rotation_y, rotation_z);
+    warpEvents_<<<gridSize, blockSize, smemSize>>>(fx, fy, cx, cy, height, width, num_events, x_unprojected, y_unprojected, x_prime, y_prime, t, rotation_x, rotation_y, rotation_z,x_offset,y_offset);
 }
 __global__ void fillImageBilinear_(float fx, float fy, float cx, float cy, int height, int width, int num_events, const float *x_unprojected, const float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum)
 {
@@ -494,7 +487,7 @@ void fillImageBilinear(float fx, float fy, float cx, float cy, int height, int w
     int smemSize = blockSize * sizeof(float);
     fillImageBilinear_<<<gridSize, blockSize, smemSize>>>(fx, fy, cx, cy, height, width, num_events, x_unprojected, y_unprojected, x_prime, y_prime, t, image, rotation_x, rotation_y, rotation_z, contrast_block_sum, contrast_del_x_block_sum, contrast_del_y_block_sum, contrast_del_z_block_sum);
 }
-void fillImage(float fx, float fy, float cx, float cy, int height, int width, int num_events, float *x_unprojected, float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum)
+void fillImage(float fx, float fy, float cx, float cy, int height, int width, int num_events, float *x_unprojected, float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int x_offset,int y_offset)
 {
     // const int num_sm = 8; // Jetson Orin NX
     // const int blocks_per_sm = 4;
@@ -510,7 +503,7 @@ void fillImage(float fx, float fy, float cx, float cy, int height, int width, in
     gridSize = std::min(128, (num_events + blockSize - 1) / blockSize);
 
     int smemSize = blockSize * sizeof(float);
-    fillImage_<<<gridSize, blockSize, smemSize>>>(fx, fy, cx, cy, height, width, num_events, x_unprojected, y_unprojected, x_prime, y_prime, t, image, rotation_x, rotation_y, rotation_z, contrast_block_sum, contrast_del_x_block_sum, contrast_del_y_block_sum, contrast_del_z_block_sum);
+    fillImage_<<<gridSize, blockSize, smemSize>>>(fx, fy, cx, cy, height, width, num_events, x_unprojected, y_unprojected, x_prime, y_prime, t, image, rotation_x, rotation_y, rotation_z, contrast_block_sum, contrast_del_x_block_sum, contrast_del_y_block_sum, contrast_del_z_block_sum,x_offset,y_offset);
 }
 
 __global__ void fillImageKronecker_(int height, int width, int num_events, float *x_prime, float *y_prime, float *image)
@@ -1164,7 +1157,7 @@ void getContrastDelBatchReduce(float *image,
     // int blockSize = 512; // The launch configurator returned block size
     int blockSize = 256; // The launch configurator returned block size
 
-    int prev_blocksize=512;
+    int prev_blocksize = 512;
     // int prev_gridsize = (num_events + blockSize - 1) / blockSize;
     int prev_gridsize = std::min(128, (num_events + blockSize - 1) / prev_blocksize);
 
@@ -1264,4 +1257,30 @@ __global__ void one_step_kernel_(uint64_t seed, float *randoms, int numel)
 void one_step_kernel(uint64_t seed, float *randoms, int numel)
 {
     one_step_kernel_<<<43, 1024>>>(seed, randoms, numel);
+}
+__global__ void rescaleIntensity_(float *image, uint8_t *output_image, float maximum, int numel)
+{
+
+    size_t thread_grid_idx = size_t(blockIdx.x * blockDim.x + threadIdx.x);
+    size_t num_threads_in_grid = size_t(blockDim.x * gridDim.x);
+
+    for (size_t idx = thread_grid_idx; idx < numel; idx += num_threads_in_grid)
+    {
+        output_image[idx] = (uint8_t)min(255, max(0, (int)(255.0 * image[idx] / (maximum / 2))));
+    }
+}
+void rescaleIntensity(float *image, uint8_t *output_image, float maximum, int height, int width)
+{
+    int blockSize;   // The launch configurator returned block size
+    int minGridSize; // The minimum grid size needed to achieve the
+                     // maximum occupancy for a full device launch
+    int gridSize;    // The actual grid size needed, based on input size
+
+    cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize,
+                                       rescaleIntensity_, 0, 0);
+    // Round up according to array size
+    int numel = height * width;
+    gridSize = (numel + blockSize - 1) / blockSize;
+    rescaleIntensity_<<<gridSize, blockSize>>>(image, output_image, maximum, numel);
+    cudaDeviceSynchronize();
 }

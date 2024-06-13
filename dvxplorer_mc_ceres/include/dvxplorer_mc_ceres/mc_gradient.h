@@ -247,7 +247,7 @@ public:
             actual_middle_t_ = t;
 
             // capture first
-            middle_t_first_idx_ = num_events_;
+            middle_t_first_event_idx_ = num_events_;
         }
         else if (!after_middle_t_ && reached_middle_t_ && t > actual_middle_t_)
         {

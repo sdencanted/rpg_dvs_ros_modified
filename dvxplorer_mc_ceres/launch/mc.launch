@@ -1,5 +1,0 @@
-<launch>
-  <node name="dvxplorer_mc_ceres" pkg="dvxplorer_mc_ceres" type="dvxplorer_mc_ceres" output="screen">
-	<rosparam command="load" file="$(find dvxplorer_mc_ceres)/config/dvx_mini.yaml" />
-  </node>
-</launch>

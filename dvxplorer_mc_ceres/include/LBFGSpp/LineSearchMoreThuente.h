@@ -213,10 +213,13 @@ public:
     template <typename Foo, typename SolverParam>
     static void LineSearch(Foo& f, const SolverParam& param,
                            const Vector& xp, const Vector& drt, const Scalar& step_max,
-                           Scalar& step, Scalar& fx, Vector& grad, Scalar& dg, Vector& x)
+                           Scalar& step, Scalar& fx, Vector& grad, Scalar& dg, Vector& x,uint64_t us=0)
     {
         using std::abs;
         // std::cout << "========================= Entering line search =========================\n\n";
+
+        // mark the current time
+        const auto start_clock = std::chrono::system_clock::now();
 
         // Check the value of step
         if (step <= Scalar(0))
@@ -268,8 +271,19 @@ public:
         // Extrapolation factor
         const Scalar delta = Scalar(1.1);
         int iter;
+        bool time_out=false;
         for (iter = 0; iter < param.max_linesearch; iter++)
         {
+            
+            if (us > 0)
+            {
+                const auto current_clock = std::chrono::system_clock::now();
+                if (std::chrono::duration_cast<std::chrono::microseconds>(current_clock - start_clock).count() > us)
+                {
+                    time_out=true;
+                    break;
+                }
+            }
             // ft = psi(step) = f(xp + step * drt) - f(xp) - step * test_decr
             // gt = psi'(step) = dg - mu * dg_init
             // mu = param.ftol
@@ -413,7 +427,7 @@ public:
         // If we have used up all line search iterations, then the strong Wolfe condition
         // is not met. We choose not to raise an exception (unless no step satisfying
         // sufficient decrease is found), but to return the best step size so far
-        if (iter >= param.max_linesearch)
+        if (time_out | iter >= param.max_linesearch)
         {
             // throw std::runtime_error("the line search routine reached the maximum number of iterations");
 

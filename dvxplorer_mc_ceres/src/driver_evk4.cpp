@@ -6,7 +6,7 @@
 namespace dvxplorer_mc_ceres
 {
 
-	void MyProcessor::eventCD(uint64_t t, uint16_t ex, uint16_t ey, uint8_t)
+	void EventProcessor::eventCD(uint64_t t, uint16_t ex, uint16_t ey, uint8_t)
 	{
 		// mc_gr_->AddData(t,ex-440,ey-160);
 		mc_gr_->AddData(t, ex + x_offset_, ey + y_offset_);
@@ -66,7 +66,7 @@ namespace dvxplorer_mc_ceres
 			mc_gr_->ClearEvents();
 		}
 	}
-	MyProcessor::MyProcessor(ros::NodeHandle &nh) : tjhandle_(makeTjhandleUniquePtr()), nh_(nh)
+	EventProcessor::EventProcessor(ros::NodeHandle &nh) : tjhandle_(makeTjhandleUniquePtr()), nh_(nh)
 	{
 		google::InitGoogleLogging("mc_ceres");
 		mc_gr_ = std::make_shared<McGradient>(fx_, fy_, cx_, cy_, height_, width_);
@@ -101,7 +101,7 @@ namespace dvxplorer_mc_ceres
 		// outfile_ = std::make_shared<std::ofstream>(run_name.str(), std::ios::out);
 	}
 
-	MyProcessor::~MyProcessor()
+	EventProcessor::~EventProcessor()
 	{
 	}
 	DvxplorerMcCeres::DvxplorerMcCeres(ros::NodeHandle &nh, ros::NodeHandle nh_private) : nh_(nh)
@@ -118,7 +118,7 @@ namespace dvxplorer_mc_ceres
 
 		// event_struct_sub_ = nh_.subscribe<dvs_msgs::EventStruct>(ns+ "/eventStruct",10,&DvxplorerMcCeres::eventStructCallback,this);
 		event_struct_sub_ = nh_.subscribe("/event_camera/events", 10, &DvxplorerMcCeres::eventStructCallback, this);
-		processor_ = std::make_shared<MyProcessor>(nh_);
+		processor_ = std::make_shared<EventProcessor>(nh_);
 	}
 	DvxplorerMcCeres::~DvxplorerMcCeres()
 	{

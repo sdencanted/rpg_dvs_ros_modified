@@ -50,11 +50,11 @@ namespace dvxplorer_mc_ceres
   }
 
   using event_camera_codecs::EventPacket;
-  class MyProcessor : public event_camera_codecs::EventProcessor
+  class EventProcessor : public event_camera_codecs::EventProcessor
   {
   public:
-    MyProcessor(ros::NodeHandle &nh);
-    ~MyProcessor();
+    EventProcessor(ros::NodeHandle &nh);
+    ~EventProcessor();
     void eventCD(uint64_t t, uint16_t ex, uint16_t ey, uint8_t) override;
     void eventExtTrigger(uint64_t, uint8_t, uint8_t) override {}
     void finished() override{};                    // called after no more events decoded in this packet
@@ -105,8 +105,8 @@ namespace dvxplorer_mc_ceres
     ros::Subscriber event_struct_sub_;
     // void eventStructCallback(const dvs_msgs::EventStruct::ConstPtr &msg);
     void eventStructCallback(const event_camera_codecs::EventPacketConstSharedPtr &msg);
-    std::shared_ptr<MyProcessor> processor_;
-    event_camera_codecs::DecoderFactory<EventPacket, MyProcessor> decoderFactory_;
+    std::shared_ptr<EventProcessor> processor_;
+    event_camera_codecs::DecoderFactory<EventPacket, EventProcessor> decoderFactory_;
   };
 
 } // namespace dvxplorer_mc_ceres
