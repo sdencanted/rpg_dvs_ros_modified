@@ -68,10 +68,13 @@ namespace dvxplorer_mc_ceres
     void reconfigure(dvxplorer_mc_ceres::DVXplorer_MC_CeresConfig &config);
     void optimizerLoop();
   private:
-    
+    std::shared_ptr<std::thread> optimizer_thread_;
     std::mutex mutex_;
     std::condition_variable cv_;
-    std::shared_ptr<McGradient> mc_gr_;
+    std::vector<std::shared_ptr<McGradient>> mc_gr_;
+    int ready_mc_gr_idx_=0;
+    int in_progress_mc_gr_idx_=1;
+    int max_mc_gr_idx_=2;
     
     LBFGSBParam<float> param_;  // New parameter class
     LBFGSBSolver<float> solver_;  // New solver class

@@ -32,28 +32,19 @@ namespace dvxplorer_mc_ceres
 		{
 			std::unique_lock<std::mutex> lk(mutex_);
 			cv_.wait(lk);
-			// ros::Time decode_end = ros::Time::now();
-			// double decode_duration = (decode_end - whole_begin_).toSec();
+			ROS_INFO("optimizer woke");
+			if(ros::isShuttingDown()){
+				break;
+			}
+			ros::Time waiting_end = ros::Time::now();
 
 			idx++;
-			// ros::Time begin = ros::Time::now();
+			ros::Time solver_begin = ros::Time::now();
 			// Initial guess
 			float fx;
-			if (new_config_)
-			{
-				if (new_height_ != height_ || new_width_ != width_)
-				{
-					height_ = new_height_;
-					width_ = new_width_;
-					int new_x_offset = (1280 - new_width_) / 2;
-					int new_y_offset = (720 - new_height_) / 2;
-					mc_gr_->reset(height_, width_, new_x_offset, new_y_offset);
-				}
-				new_config_ = false;
-			}
 			try
 			{
-				solver_.minimize(*mc_gr_, rotations_, fx, lb_, ub_, 9000);
+				solver_.minimize(* mc_gr_[ready_mc_gr_idx_], rotations_, fx, lb_, ub_, 9000);
 			}
 			catch (std::exception &e)
 			{
@@ -67,25 +58,23 @@ namespace dvxplorer_mc_ceres
 					ROS_INFO("%s", error_str.c_str());
 				}
 			}
-			// ros::Time end = ros::Time::now();
-			// double duration = (end - begin).toSec();
+			ros::Time solver_end = ros::Time::now();
 			// ROS_INFO("%d iterations", mc_gr_->iterations);
 
 			// ROS_INFO("Rotations: %f %f %f, t=%fms", rotations_[0], rotations_[1], rotations_[2],mc_gr_->approx_middle_t_/1e6);
-			uint8_t *image;
-			cudaMallocHost(&image, height_ * width_ * sizeof(uint8_t));
+
 
 			// uint8_t image[height_ * width_];
 			float contrast;
 			sensor_msgs::CompressedImage compressed;
 			compressed.format = "jpeg";
-			mc_gr_->GenerateImage(rotations_.data(), image, contrast);
+			mc_gr_[ready_mc_gr_idx_]->GenerateImage(rotations_.data(), contrast);
 			unsigned char *jpeg_buffer = nullptr;
 			uint64_t jpeg_size{};
 			std::string targetFormat = "jpeg";
 			tjCompress2(
 				*tjhandle_,
-				image,
+				mc_gr_[ready_mc_gr_idx_]->output_image,
 				width_,
 				width_,
 				height_,
@@ -104,51 +93,72 @@ namespace dvxplorer_mc_ceres
 			msg.twist.angular.x = rotations_[0];
 			msg.twist.angular.y = rotations_[1];
 			msg.twist.angular.z = rotations_[2];
-			msg.header.stamp.sec = mc_gr_->GetMiddleT() / 1e9;
-			msg.header.stamp.nsec = mc_gr_->GetMiddleT() - msg.header.stamp.sec * 1e9;
+			msg.header.stamp.sec = mc_gr_[ready_mc_gr_idx_]->GetMiddleT() / 1e9;
+			msg.header.stamp.nsec = mc_gr_[ready_mc_gr_idx_]->GetMiddleT() - msg.header.stamp.sec * 1e9;
 			velocity_pub_.publish(msg);
-			mc_gr_->ClearEvents();
+			mc_gr_[ready_mc_gr_idx_]->ClearEvents();
 
-			// ros::Time whole_end = ros::Time::now();
-
-			// double postprocessing_duration = (whole_end - begin).toSec();
-
-			// double whole_duration = (whole_end - whole_begin_).toSec();
-			// whole_begin_ = ros::Time::now();
-			// ROS_INFO("decoding took %lf seconds", decode_duration);
-			// ROS_INFO("optimization took %lf seconds", duration);
-			// ROS_INFO("postprocessing took %lf seconds", postprocessing_duration);
-			// ROS_INFO("entire callback took %lf seconds", whole_duration);
+			ros::Time whole_end = ros::Time::now();
+			double postprocessing_duration = (whole_end - solver_end).toSec();
+			double whole_duration = (whole_end - whole_begin_).toSec();
+			double waiting_duration = (waiting_end - whole_begin_).toSec();
+			double solver_duration = (solver_end - solver_begin).toSec();
+			ROS_INFO("waited for %lf seconds", waiting_duration);
+			ROS_INFO("optimization took %lf seconds", solver_duration);
+			ROS_INFO("postprocessing took %lf seconds", postprocessing_duration);
+			ROS_INFO("entire callback took %lf seconds", whole_duration);
+			whole_begin_ = ros::Time::now();
 			lk.unlock();
 		}
 	}
 	void EventProcessor::eventCD(uint64_t t, uint16_t ex, uint16_t ey, uint8_t)
 	{
-		// if(t!=prev_t_){
-		// 	prev_t_=t;
-		// 	ROS_INFO("%f %d",t/1e6,mc_gr_->num_events_);
-		// }
-		// TODO: equal events before and after middle ts
-
-		if (mc_gr_->ReadyToMC(t))
+		if (mc_gr_[in_progress_mc_gr_idx_]->ReadyToMC(t))
 		{
-			std::lock_guard<std::mutex> lk(mutex_);
-			if (mc_gr_->SufficientEvents())
+			// ROS_INFO("ready to mc");
+			if (mc_gr_[in_progress_mc_gr_idx_]->SufficientEvents())
 			{
+				mc_gr_[in_progress_mc_gr_idx_]->syncClearImages();
+				// ROS_INFO("sufficient events");
+				{
+					std::lock_guard<std::mutex> lk(mutex_);
+					// ROS_INFO("lock obtained");
+					ready_mc_gr_idx_=in_progress_mc_gr_idx_;
+					in_progress_mc_gr_idx_=(in_progress_mc_gr_idx_+1)%max_mc_gr_idx_;
+				}
 				cv_.notify_one();
+				mc_gr_[in_progress_mc_gr_idx_]->clearImages();
 			}
 			else
 			{
 				ROS_INFO("skipped solver, insufficient events");
+				mc_gr_[in_progress_mc_gr_idx_]->ClearEvents();
 			}
 		}
-		mc_gr_->AddData(t, ex, ey);
+		mc_gr_[in_progress_mc_gr_idx_]->AddData(t, ex, ey);
+		
+		if (new_config_)
+		{
+			if (new_height_ != height_ || new_width_ != width_)
+			{
+				height_ = new_height_;
+				width_ = new_width_;
+				int new_x_offset = (1280 - new_width_) / 2;
+				int new_y_offset = (720 - new_height_) / 2;
+				mc_gr_[in_progress_mc_gr_idx_]->reset(height_, width_, new_x_offset, new_y_offset);
+			}
+			new_config_ = false;
+		}
 	}
 	EventProcessor::EventProcessor(ros::NodeHandle &nh) : tjhandle_(makeTjhandleUniquePtr()), nh_(nh), solver_(LBFGSBSolver<float>(param_))
 	{
 		// google::InitGoogleLogging("mc_ceres");
-		mc_gr_ = std::make_shared<McGradient>(fx_, fy_, cx_, cy_, height_, width_);
-		mc_gr_->allocate();
+		for(int i=0; i<2; i++){
+			mc_gr_.push_back(std::make_shared<McGradient>(fx_, fy_, cx_, cy_, height_, width_));
+			mc_gr_.back()->allocate();
+		}
+		// mc_gr_ = std::make_shared<McGradient>(fx_, fy_, cx_, cy_, height_, width_);
+		// mc_gr_->allocate();
 
 		param_.m = 10;
 		// param_.epsilon = 1e-2;
@@ -175,6 +185,7 @@ namespace dvxplorer_mc_ceres
 		compensated_image_pub_ = nh_.advertise<sensor_msgs::CompressedImage>(ns + "/comprensated/image/compressed", 10);
 		velocity_pub_ = nh_.advertise<geometry_msgs::TwistStamped>(ns + "/velocity", 10);
 		whole_begin_ = ros::Time::now();
+		optimizer_thread_=std::make_shared<std::thread>(&EventProcessor::optimizerLoop, this);
 	}
 	void EventProcessor::reconfigure(dvxplorer_mc_ceres::DVXplorer_MC_CeresConfig &config)
 	{
@@ -186,6 +197,8 @@ namespace dvxplorer_mc_ceres
 	}
 	EventProcessor::~EventProcessor()
 	{
+		cv_.notify_all();
+  		optimizer_thread_->join();
 	}
 
 	DvxplorerMcCeres::DvxplorerMcCeres(ros::NodeHandle &nh, ros::NodeHandle nh_private) : nh_(nh)

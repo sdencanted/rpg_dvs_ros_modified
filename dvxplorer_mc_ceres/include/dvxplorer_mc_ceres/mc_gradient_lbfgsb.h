@@ -77,6 +77,8 @@ public:
     void allocateImageRelated_(){
         // create pinned memory for x,y,t,image,image dels
         checkCudaErrors(cudaMalloc(&image_, (height_) * (width_) * sizeof(float) * 4));
+        checkCudaErrors(cudaMalloc(&kronecker_image_, (height_) * (width_) * sizeof(int)));
+        checkCudaErrors(cudaMallocHost(&output_image, (height_) * (width_) * sizeof(uint8_t)));
         int gridSize = std::min(512, (height_ * width_ + 512 - 1) / 512);
         checkCudaErrors(cudaMallocHost((void **)&contrast_block_sum_, gridSize * sizeof(float)));
         checkCudaErrors(cudaMalloc((void **)&contrast_del_x_block_sum_, gridSize * sizeof(float)));
@@ -106,6 +108,8 @@ public:
         x_offset_=new_x_offset;
         y_offset_=new_y_offset;
         checkCudaErrors(cudaFree(image_));
+        checkCudaErrors(cudaFree(kronecker_image_));
+        checkCudaErrors(cudaFreeHost(output_image));
         checkCudaErrors(cudaFreeHost(contrast_block_sum_));
         checkCudaErrors(cudaFree(contrast_del_x_block_sum_));
         checkCudaErrors(cudaFree(contrast_del_y_block_sum_));
@@ -129,7 +133,7 @@ public:
                   double *gradient) const 
     {
         // std::cout<<num_events_<<std::endl;
-        fillImage(fx_, fy_, cx_, cy_, height_, width_, std::min(target_num_events_,num_events_), x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_, parameters[0], parameters[1], parameters[2], contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_,x_offset_,y_offset_);
+        fillImage(fx_, fy_, cx_, cy_, height_, width_, std::min(target_num_events_,num_events_), x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_, parameters[0], parameters[1], parameters[2], contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_,stream_,x_offset_,y_offset_);
 
         getContrastDelBatchReduce(image_, residuals, gradient, height_, width_,
                                   contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_, means_, std::min(target_num_events_,num_events_), stream_);
@@ -138,6 +142,13 @@ public:
         // std::cout<<residuals[0]<<" grads "<<gradient[0]<<" "<<gradient[1]<<" "<<gradient[2]<<std::endl;
 
         return true;
+    }
+    void clearImages(){
+        cudaMemsetAsync(output_image,0,sizeof(int)*width_*height_,stream_[1]);
+        cudaMemsetAsync(image_,0,sizeof(int)*width_*height_*4,stream_[1]);
+    }
+    void syncClearImages(){
+        cudaStreamSynchronize(stream_[1]);
     }
     uint64_t GetMiddleT(){
         return approx_middle_t_;
@@ -216,17 +227,17 @@ public:
     void SumImage(){
         std::cout<< thrustMean(image_,height_,width_)<<std::endl;
     }
-    void GenerateImage(const float *const rotations, uint8_t *output_image, float &contrast)
+    void GenerateImage(const float *const rotations,  float &contrast)
     {
-        float *image;
+        // float *image;
         warpEvents(fx_, fy_, cx_, cy_, height_, width_, std::min(num_events_,target_num_events_), x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, rotations[0], rotations[1], rotations[2],x_offset_,y_offset_);
-        cudaMallocHost(&image, sizeof(float) * height_ * width_);
-        std::fill_n(image, (height_) * (width_), 0);
-        fillImageKronecker(height_, width_, std::min(num_events_,target_num_events_), x_prime_, y_prime_, image);
-        cudaDeviceSynchronize();
+        // cudaMallocHost(&image, sizeof(float) * height_ * width_);
+        // cudaMemset(image, (height_) * (width_), 0);
+        fillImageKronecker(height_, width_, std::min(num_events_,target_num_events_), x_prime_, y_prime_, kronecker_image_);
+        // cudaDeviceSynchronize();
         
-        float maximum = getMax(image, height_, width_);
-        rescaleIntensity(image,output_image,maximum,height_,width_);
+        float maximum = getMax(kronecker_image_, height_, width_);
+        rescaleIntensity(kronecker_image_,output_image,maximum,height_,width_);
         // std::cout<<maximum<<std::endl;
 
         // for (int i = 0; i < height_; i++)
@@ -236,12 +247,12 @@ public:
         //         output_image[i * width_ + j] = (uint8_t)std::min(255.0, std::max(0.0, (255.0 * image[(i) * (width_) + j] / (maximum / 2))));
         //     }
         // }
-        cudaFreeHost(image);
+        // cudaFreeHost(image);
     };
     void GenerateUncompensatedImage(const float *const rotations, uint8_t *output_image, float &contrast)
     {
-        float *image;
-        cudaMallocHost(&image, sizeof(float) * height_ * width_);
+        int *image;
+        cudaMallocHost(&image, sizeof(int) * height_ * width_);
         std::fill_n(image, (height_) * (width_), 0);
         fillImageKronecker(height_, width_, target_num_events_, x_, y_, image);
         cudaDeviceSynchronize();
@@ -256,55 +267,55 @@ public:
         }
         cudaFreeHost(image);
     };
-    void GenerateImageBilinear(const double *const rotations, uint8_t *output_image, float &contrast)
-    {
-        cudaMemsetAsync(image_, 0, height_ * width_ * sizeof(float));
-        cudaDeviceSynchronize();
-        fillImageBilinear(fx_, fy_, cx_, cy_, height_, width_, num_events_, x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_, rotations[0], rotations[1], rotations[2], contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_);
-        float *image;
-        cudaMallocHost(&image, sizeof(float) * height_ * width_);
-        cudaMemcpy(image, image_, height_ * width_ * sizeof(float), cudaMemcpyDefault);
-        float maximum = getMax(image_, height_, width_);
-        cudaMemsetAsync(image_, 0, height_ * width_ * sizeof(float));
-        float mean = thrustMean(image_, height_, width_);
-        // thrust::device_ptr<float> dev_ptr = thrust::device_pointer_cast(image_);
-        // float sum1 = thrust::reduce(dev_ptr, dev_ptr+height_*width_, 0.0, thrust::plus<float>());
-        // float mean= sum1/(height_*width_);
+    // void GenerateImageBilinear(const double *const rotations, uint8_t *output_image, float &contrast)
+    // {
+    //     cudaMemsetAsync(image_, 0, height_ * width_ * sizeof(float));
+    //     cudaDeviceSynchronize();
+    //     fillImageBilinear(fx_, fy_, cx_, cy_, height_, width_, num_events_, x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_, rotations[0], rotations[1], rotations[2], contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_);
+    //     float *image;
+    //     cudaMallocHost(&image, sizeof(float) * height_ * width_);
+    //     cudaMemcpy(image, image_, height_ * width_ * sizeof(float), cudaMemcpyDefault);
+    //     float maximum = getMax(image_, height_, width_);
+    //     cudaMemsetAsync(image_, 0, height_ * width_ * sizeof(float));
+    //     float mean = thrustMean(image_, height_, width_);
+    //     // thrust::device_ptr<float> dev_ptr = thrust::device_pointer_cast(image_);
+    //     // float sum1 = thrust::reduce(dev_ptr, dev_ptr+height_*width_, 0.0, thrust::plus<float>());
+    //     // float mean= sum1/(height_*width_);
 
-        float contrast_sum = 0;
-        for (int i = 0; i < height_; i++)
-        {
-            for (int j = 0; j < width_; j++)
-            {
-                output_image[i * width_ + j] = (uint8_t)std::min(255.0, std::max(0.0, (255.0 * image[(i) * (width_) + j] / (maximum / 2))));
-                contrast_sum += (image[(i) * (width_) + j] - mean) * (image[(i) * (width_) + j] - mean);
-            }
-        }
-        contrast = contrast_sum / (height_ * width_);
-        cudaFreeHost(image);
-    };
-    void GenerateUncompensatedImageBilinear(const double *const rotations, uint8_t *output_image, float &contrast)
-    {
-        cudaDeviceSynchronize();
-        fillImageBilinear(fx_, fy_, cx_, cy_, height_, width_, num_events_, x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_, 0, 0, 0, contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_);
-        float *image;
-        cudaMallocHost(&image, sizeof(float) * height_ * width_);
-        cudaMemcpy(image, image_, height_ * width_ * sizeof(float), cudaMemcpyDefault);
-        float maximum = getMax(image_, height_, width_);
-        cudaMemsetAsync(image_, 0, height_ * width_ * sizeof(float));
-        float mean = thrustMean(image_, height_, width_);
-        float contrast_sum = 0;
-        for (int i = 0; i < height_; i++)
-        {
-            for (int j = 0; j < width_; j++)
-            {
-                output_image[i * width_ + j] = (uint8_t)std::min(255.0, std::max(0.0, (255.0 * image[(i) * (width_) + j] / (maximum / 2))));
-                contrast_sum += (image[(i) * (width_) + j] - mean) * (image[(i) * (width_) + j] - mean);
-            }
-        }
-        contrast = contrast_sum / (height_ * width_);
-        cudaFreeHost(image);
-    };
+    //     float contrast_sum = 0;
+    //     for (int i = 0; i < height_; i++)
+    //     {
+    //         for (int j = 0; j < width_; j++)
+    //         {
+    //             output_image[i * width_ + j] = (uint8_t)std::min(255.0, std::max(0.0, (255.0 * image[(i) * (width_) + j] / (maximum / 2))));
+    //             contrast_sum += (image[(i) * (width_) + j] - mean) * (image[(i) * (width_) + j] - mean);
+    //         }
+    //     }
+    //     contrast = contrast_sum / (height_ * width_);
+    //     cudaFreeHost(image);
+    // };
+    // void GenerateUncompensatedImageBilinear(const double *const rotations, uint8_t *output_image, float &contrast)
+    // {
+    //     cudaDeviceSynchronize();
+    //     fillImageBilinear(fx_, fy_, cx_, cy_, height_, width_, num_events_, x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_, 0, 0, 0, contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_);
+    //     float *image;
+    //     cudaMallocHost(&image, sizeof(float) * height_ * width_);
+    //     cudaMemcpy(image, image_, height_ * width_ * sizeof(float), cudaMemcpyDefault);
+    //     float maximum = getMax(image_, height_, width_);
+    //     cudaMemsetAsync(image_, 0, height_ * width_ * sizeof(float));
+    //     float mean = thrustMean(image_, height_, width_);
+    //     float contrast_sum = 0;
+    //     for (int i = 0; i < height_; i++)
+    //     {
+    //         for (int j = 0; j < width_; j++)
+    //         {
+    //             output_image[i * width_ + j] = (uint8_t)std::min(255.0, std::max(0.0, (255.0 * image[(i) * (width_) + j] / (maximum / 2))));
+    //             contrast_sum += (image[(i) * (width_) + j] - mean) * (image[(i) * (width_) + j] - mean);
+    //         }
+    //     }
+    //     contrast = contrast_sum / (height_ * width_);
+    //     cudaFreeHost(image);
+    // };
     float operator()(const VectorXf& x, VectorXf& grad)
     {
         double fx = 0.0;
@@ -332,6 +343,7 @@ public:
     int g_count = 0;
 
     // private:
+    uint8_t *output_image;
     thrust::device_vector<float> H;
     float *x_unprojected_ = NULL;
     float *y_unprojected_ = NULL;
@@ -364,6 +376,7 @@ public:
     float *contrast_del_y_block_sum_;
     float *contrast_del_z_block_sum_;
     float *means_;
+    int *kronecker_image_;
     std::shared_ptr<std::thread> memset_thread_;
     std::mutex m_;
     std::shared_ptr<std::condition_variable> cv_;

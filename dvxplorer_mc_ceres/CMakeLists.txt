@@ -40,17 +40,17 @@ find_package (Eigen3 3.0 REQUIRED NO_MODULE)
 
 catkin_simple()
 # make the executable
-cs_add_executable(dvxplorer_mc_ceres
-src/driver_node.cpp
-src/driver.cpp
-src/motion_compensation_float.cu 
-)
+# cs_add_executable(dvxplorer_mc_ceres
+# src/driver_node.cpp
+# src/driver.cpp
+# src/motion_compensation_float.cu 
+# )
 
-cs_add_executable(dvxplorer_mc_ceres_evk4
-  src/driver_node_evk4.cpp
-  src/driver_evk4.cpp
-  src/motion_compensation_float.cu 
-)
+# cs_add_executable(dvxplorer_mc_ceres_evk4
+#   src/driver_node_evk4.cpp
+#   src/driver_evk4.cpp
+#   src/motion_compensation_float.cu 
+# )
 cs_add_executable(dvxplorer_mc_ceres_evk4_lbfgsb
   src/driver_node_evk4_lbfgsb.cpp
   src/driver_evk4_lbfgsb.cpp
@@ -58,27 +58,27 @@ cs_add_executable(dvxplorer_mc_ceres_evk4_lbfgsb
 )
 
 # make the nodelet into a library
-cs_add_library(dvxplorer_mc_ceres_nodelet
-  src/driver_nodelet.cpp
-  src/driver.cpp
-  src/motion_compensation_float.cu 
-)
+# cs_add_library(dvxplorer_mc_ceres_nodelet
+#   src/driver_nodelet.cpp
+#   src/driver.cpp
+#   src/motion_compensation_float.cu 
+# )
 
 # link the executable to the necessary libs
-target_link_libraries(dvxplorer_mc_ceres
-  ${catkin_LIBRARIES}
-  Ceres::ceres
-  ${CUDA_LIBRARIES}
-  jetson-utils
-  turbojpeg
-)
-target_link_libraries(dvxplorer_mc_ceres_evk4
-  ${catkin_LIBRARIES}
-  Ceres::ceres
-  ${CUDA_LIBRARIES}
-  jetson-utils
-  turbojpeg
-)
+# target_link_libraries(dvxplorer_mc_ceres
+#   ${catkin_LIBRARIES}
+#   Ceres::ceres
+#   ${CUDA_LIBRARIES}
+#   jetson-utils
+#   turbojpeg
+# )
+# target_link_libraries(dvxplorer_mc_ceres_evk4
+#   ${catkin_LIBRARIES}
+#   Ceres::ceres
+#   ${CUDA_LIBRARIES}
+#   jetson-utils
+#   turbojpeg
+# )
 target_link_libraries(dvxplorer_mc_ceres_evk4_lbfgsb
   ${catkin_LIBRARIES}
   ${CUDA_LIBRARIES}
@@ -88,13 +88,13 @@ target_link_libraries(dvxplorer_mc_ceres_evk4_lbfgsb
 )
 
 # link the executable to the necessary libs
-target_link_libraries(dvxplorer_mc_ceres_nodelet
-  ${catkin_LIBRARIES}
-  Ceres::ceres
-  ${CUDA_LIBRARIES}
-  jetson-utils
-  turbojpeg
-)
+# target_link_libraries(dvxplorer_mc_ceres_nodelet
+#   ${catkin_LIBRARIES}
+#   Ceres::ceres
+#   ${CUDA_LIBRARIES}
+#   jetson-utils
+#   turbojpeg
+# )
 
 
 # catkin_install_python(PROGRAMS scripts/subEvent.py
