@@ -1,5 +1,5 @@
-#ifndef MC_GRADIENT_LBFGSPP_H
-#define MC_GRADIENT_LBFGSPP_H
+#ifndef MC_GRADIENT_BASE_H
+#define MC_GRADIENT_BASE_H
 // #include <dv-processing/core/frame.hpp>
 // #include <dv-processing/io/mono_camera_recording.hpp>
 // #include <dv-processing/core/multi_stream_slicer.hpp>
@@ -29,7 +29,6 @@
 #include <thrust/device_vector.h>
 #include <thrust/async/copy.h>
 #include <Eigen/Core>
-#include <LBFGSB.h> // Note the different header file
 
 using Eigen::VectorXf;
 class McGradient
@@ -109,51 +108,21 @@ public:
                   double *residuals,
                   double *gradient) const
     {
-
-        cudaMemset(image_and_jacobian_images_buffer_, 0, (height_) * (width_) * sizeof(float) * 4);
-        int gridSize = std::min(512, (height_ * width_ + 512 - 1) / 512);
-        cudaMemset(contrast_block_sum_, 0, gridSize * sizeof(float));
-        cudaMemset(contrast_del_x_block_sum_, 0, gridSize * sizeof(float));
-        cudaMemset(contrast_del_y_block_sum_, 0, gridSize * sizeof(float));
-        cudaMemset(contrast_del_z_block_sum_, 0, gridSize * sizeof(float));
-        cudaDeviceSynchronize();
-        // std::cout<<num_events_<<std::endl;
         fillImage(fx_, fy_, cx_, cy_, height_, width_, std::min(target_num_events_, num_events_), x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_and_jacobian_images_buffer_, parameters[0], parameters[1], parameters[2], contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_, stream_, x_offset_, y_offset_);
 
-        // ROS_INFO("thrust contrast mean %f",thrustMean(image_and_jacobian_images_buffer_,height_,width_));
         getContrastDelBatchReduce(image_and_jacobian_images_buffer_, residuals, gradient, height_, width_,
                                   contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_, means_, std::min(target_num_events_, num_events_), stream_);
-
-        ROS_INFO("results for iter %d rot %f %f %f con %f grad %f %f %f", iterations,  parameters[0], parameters[1], parameters[2], residuals[0], gradient[0], gradient[1], gradient[2]);
+        // ROS_INFO("results for iter %d rot %f %f %f con %f grad %f %f %f",iterations,parameters[0],parameters[1],parameters[2],residuals[0],gradient[0],gradient[1],gradient[2]);
         // std::cout<<"results for iter "<<iterations<< "rot "<<parameters[0]<<" "<<parameters[1]<<" "<<parameters[2]<<" con";
         // std::cout<<residuals[0]<<" grads "<<gradient[0]<<" "<<gradient[1]<<" "<<gradient[2]<<std::endl;
 
-        return true;
-    }
-    bool EvaluateBilinear(const double *const parameters,
-                          double *residuals,
-                          double *gradient) const
-    {
-        // std::cout<<num_events_<<std::endl;
-        fillImageBilinear(fx_, fy_, cx_, cy_, height_, width_, std::min(target_num_events_, num_events_), x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_and_jacobian_images_buffer_, parameters[0], parameters[1], parameters[2], contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_, stream_, x_offset_, y_offset_);
-
-        getContrastDelBatchReduce(image_and_jacobian_images_buffer_, residuals, gradient, height_, width_,
-                                  contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_, means_, std::min(target_num_events_, num_events_), stream_);
-        residuals[0] *= 50;
-        for (int i = 0; i < 3; i++)
-        {
-            gradient[i] *= 50;
-        }
-        // ROS_INFO("results for bilinear iter %d rot %f %f %f con %f grad %f %f %f", iterations, parameters[0], parameters[1], parameters[2], residuals[0], gradient[0], gradient[1], gradient[2]);
-        // std::cout<<"results for iter "<<iterations<< "rot "<<parameters[0]<<" "<<parameters[1]<<" "<<parameters[2]<<" con";
-        // std::cout<<residuals[0]<<" grads "<<gradient[0]<<" "<<gradient[1]<<" "<<gradient[2]<<std::endl;
-
+        iterations++;
         return true;
     }
     void clearImages()
     {
-        cudaMemsetAsync(kronecker_image_, 0, sizeof(int) * width_ * height_, stream_[1]);
-        // cudaMemsetAsync(image_and_jacobian_images_buffer_,0,sizeof(int)*width_*height_*4,stream_[1]);
+        cudaMemsetAsync(output_image, 0, sizeof(int) * width_ * height_, stream_[1]);
+        cudaMemsetAsync(image_and_jacobian_images_buffer_, 0, sizeof(int) * width_ * height_ * 4, stream_[1]);
     }
     void syncClearImages()
     {
@@ -210,8 +179,6 @@ public:
         // ROS_INFO("%f %ld %ld",t_[num_events_],t,evk_middle_t_);
         x_unprojected_[num_events_ % target_num_events_] = (x - cx_) / fx_;
         y_unprojected_[num_events_ % target_num_events_] = (y - cy_) / fy_;
-        x_[num_events_ % target_num_events_] = x;
-        y_[num_events_ % target_num_events_] = y;
         num_events_++;
     }
     bool ReadyToMC(uint64_t t)
@@ -241,108 +208,40 @@ public:
     {
         std::cout << thrustMean(image_and_jacobian_images_buffer_, height_, width_) << std::endl;
     }
-    void GenerateImage(const float *const rotations, float &contrast)
+    void GenerateImage(const float *const rotations)
     {
         warpEvents(fx_, fy_, cx_, cy_, height_, width_, std::min(num_events_, target_num_events_), x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, rotations[0], rotations[1], rotations[2], x_offset_, y_offset_);
         fillImageKronecker(height_, width_, std::min(num_events_, target_num_events_), x_prime_, y_prime_, kronecker_image_);
         int maximum = getMax(kronecker_image_, height_, width_);
         rescaleIntensity(kronecker_image_, output_image, maximum, height_, width_);
     };
-    void GenerateUncompensatedImage(float &contrast)
+    void GenerateUncompensatedImage(const float *const rotations)
     {
         fillImageKronecker(height_, width_, std::min(num_events_, target_num_events_), x_, y_, kronecker_image_);
         int maximum = getMax(kronecker_image_, height_, width_);
         rescaleIntensity(kronecker_image_, output_image, maximum, height_, width_);
     };
 
-    void GenerateImageBilinear(const double *const rotations, uint8_t *output_image, float &contrast)
+    void GenerateImageBilinear(const double *const rotations)
     {
         cudaMemsetAsync(image_and_jacobian_images_buffer_, 0, height_ * width_ * sizeof(float));
-        cudaDeviceSynchronize();
-        fillImageBilinear(fx_, fy_, cx_, cy_, height_, width_, num_events_, x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_and_jacobian_images_buffer_, rotations[0], rotations[1], rotations[2], contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_, stream_, x_offset_, y_offset_);
-        float *image;
-        cudaMallocHost(&image, sizeof(float) * height_ * width_);
-        cudaMemcpy(image, image_and_jacobian_images_buffer_, height_ * width_ * sizeof(float), cudaMemcpyDefault);
+        fillImageBilinear(fx_, fy_, cx_, cy_, height_, width_, num_events_, x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_and_jacobian_images_buffer_, rotations[0], rotations[1], rotations[2], contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_);
         float maximum = getMax(image_and_jacobian_images_buffer_, height_, width_);
-        cudaMemsetAsync(image_and_jacobian_images_buffer_, 0, height_ * width_ * sizeof(float));
-        float mean = thrustMean(image_and_jacobian_images_buffer_, height_, width_);
-        float contrast_sum = 0;
-        for (int i = 0; i < height_; i++)
-        {
-            for (int j = 0; j < width_; j++)
-            {
-                output_image[i * width_ + j] = (uint8_t)std::min(255.0, std::max(0.0, (255.0 * image[(i) * (width_) + j] / (maximum / 2))));
-                contrast_sum += (image[(i) * (width_) + j] - mean) * (image[(i) * (width_) + j] - mean);
-            }
-        }
-        contrast = contrast_sum / (height_ * width_);
-        cudaFreeHost(image);
+        rescaleIntensity(image_and_jacobian_images_buffer_, output_image, maximum, height_, width_);
     };
-    void GenerateUncompensatedImageBilinear(const double *const rotations, uint8_t *output_image, float &contrast)
+    void GenerateUncompensatedImageBilinear(const double *const rotations)
     {
-        cudaDeviceSynchronize();
-        fillImageBilinear(fx_, fy_, cx_, cy_, height_, width_, num_events_, x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_and_jacobian_images_buffer_, 0, 0, 0, contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_, stream_, x_offset_, y_offset_);
-        float *image;
-        cudaMallocHost(&image, sizeof(float) * height_ * width_);
-        cudaMemcpy(image, image_and_jacobian_images_buffer_, height_ * width_ * sizeof(float), cudaMemcpyDefault);
+        cudaMemsetAsync(image_and_jacobian_images_buffer_, 0, height_ * width_ * sizeof(float));
+        fillImageBilinear(fx_, fy_, cx_, cy_, height_, width_, num_events_, x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_and_jacobian_images_buffer_, 0,0,0, contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_);
         float maximum = getMax(image_and_jacobian_images_buffer_, height_, width_);
-        cudaMemsetAsync(image_and_jacobian_images_buffer_, 0, height_ * width_ * sizeof(float));
-        float mean = thrustMean(image_and_jacobian_images_buffer_, height_, width_);
-        float contrast_sum = 0;
-        for (int i = 0; i < height_; i++)
-        {
-            for (int j = 0; j < width_; j++)
-            {
-                output_image[i * width_ + j] = (uint8_t)std::min(255.0, std::max(0.0, (255.0 * image[(i) * (width_) + j] / (maximum / 2))));
-                contrast_sum += (image[(i) * (width_) + j] - mean) * (image[(i) * (width_) + j] - mean);
-            }
-        }
-        contrast = contrast_sum / (height_ * width_);
-        cudaFreeHost(image);
+        rescaleIntensity(image_and_jacobian_images_buffer_, output_image, maximum, height_, width_);
     };
-    float operator()(const VectorXf &x, VectorXf &grad)
-    {
-        double fx = 0.0;
-        double rotations[3];
-        double gradients[3];
-        for (int i = 0; i < 3; i++)
-        {
-            rotations[i] = x[i];
-            gradients[i] = grad[i];
-        }
-        rotations[0] = x[0];
-        if (use_bilinear_)
-        {
-
-            EvaluateBilinear(rotations,
-                             &fx,
-                             gradients);
-        }
-        else
-        {
-
-            Evaluate(rotations,
-                     &fx,
-                     gradients);
-        }
-
-        for (int i = 0; i < 3; i++)
-        {
-            grad[i] = gradients[i];
-        }
-        // std::cout<<fx<<std::endl;
-        return (float)fx;
-    }
-    void setUseBilinear(bool use)
-    {
-        use_bilinear_ = use;
-    }
 
     int f_count = 0;
     int g_count = 0;
-
-    // private:
     uint8_t *output_image;
+
+private:
     thrust::device_vector<float> H;
     float *x_unprojected_ = NULL;
     float *y_unprojected_ = NULL;
@@ -361,7 +260,6 @@ public:
     bool first_event_ = true;
     bool reached_middle_t_ = false;
     bool after_middle_t_ = false;
-    bool use_bilinear_ = false;
     float *image_and_jacobian_images_buffer_ = NULL;
     float fx_;
     float fy_;

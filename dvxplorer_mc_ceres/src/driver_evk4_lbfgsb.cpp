@@ -42,6 +42,7 @@ namespace dvxplorer_mc_ceres
 			ros::Time solver_begin = ros::Time::now();
 			// Initial guess
 			float fx;
+			
 			try
 			{
 				solver_.minimize(* mc_gr_[ready_mc_gr_idx_], rotations_, fx, lb_, ub_, 9000);
@@ -51,7 +52,27 @@ namespace dvxplorer_mc_ceres
 				std::string error_str = e.what();
 				if (error_str == "the line search step became smaller than the minimum value allowed")
 				{
-					// ROS_INFO("<min");
+					ROS_INFO("<min");
+				}
+				else
+				{
+					ROS_INFO("%s", error_str.c_str());
+				}
+			}
+			
+			ros::Time solver_end_gaussian = ros::Time::now();
+			try
+			{
+				mc_gr_[ready_mc_gr_idx_]->setUseBilinear(true);
+				solver_.minimize(* mc_gr_[ready_mc_gr_idx_], rotations_bilinear_, fx, lb_, ub_, 9000);
+				mc_gr_[ready_mc_gr_idx_]->setUseBilinear(false);
+			}
+			catch (std::exception &e)
+			{
+				std::string error_str = e.what();
+				if (error_str == "the line search step became smaller than the minimum value allowed")
+				{
+					ROS_INFO("<min");
 				}
 				else
 				{
@@ -59,16 +80,16 @@ namespace dvxplorer_mc_ceres
 				}
 			}
 			ros::Time solver_end = ros::Time::now();
-			// ROS_INFO("%d iterations", mc_gr_->iterations);
-
-			// ROS_INFO("Rotations: %f %f %f, t=%fms", rotations_[0], rotations_[1], rotations_[2],mc_gr_->approx_middle_t_/1e6);
+			ROS_INFO("Rotations gaussian 5x5 : %f %f %f, t=%fms", rotations_[0], rotations_[1], rotations_[2],mc_gr_[ready_mc_gr_idx_]->approx_middle_t_/1e6);
+			ROS_INFO("Rotations bilinear : %f %f %f, t=%fms", rotations_bilinear_[0], rotations_bilinear_[1], rotations_bilinear_[2],mc_gr_[ready_mc_gr_idx_]->approx_middle_t_/1e6);
 
 
 			// uint8_t image[height_ * width_];
 			float contrast;
 			sensor_msgs::CompressedImage compressed;
 			compressed.format = "jpeg";
-			mc_gr_[ready_mc_gr_idx_]->GenerateImage(rotations_.data(), contrast);
+			// TODO: mc_gr_[ready_mc_gr_idx_]->GenerateImage(rotations_.data(), contrast);
+			mc_gr_[ready_mc_gr_idx_]->GenerateUncompensatedImage(contrast);
 			unsigned char *jpeg_buffer = nullptr;
 			uint64_t jpeg_size{};
 			std::string targetFormat = "jpeg";
@@ -102,9 +123,11 @@ namespace dvxplorer_mc_ceres
 			double postprocessing_duration = (whole_end - solver_end).toSec();
 			double whole_duration = (whole_end - whole_begin_).toSec();
 			double waiting_duration = (waiting_end - whole_begin_).toSec();
-			double solver_duration = (solver_end - solver_begin).toSec();
+			double solver_gaussian_duration = (solver_end_gaussian - solver_begin).toSec();
+			double solver_bilinear_duration = (solver_end - solver_end_gaussian).toSec();
 			ROS_INFO("waited for %lf seconds", waiting_duration);
-			ROS_INFO("optimization took %lf seconds", solver_duration);
+			ROS_INFO("optimization gaussian took %lf seconds", solver_gaussian_duration);
+			ROS_INFO("optimization bilinear took %lf seconds", solver_bilinear_duration);
 			ROS_INFO("postprocessing took %lf seconds", postprocessing_duration);
 			ROS_INFO("entire callback took %lf seconds", whole_duration);
 			whole_begin_ = ros::Time::now();
@@ -116,7 +139,8 @@ namespace dvxplorer_mc_ceres
 		if (mc_gr_[in_progress_mc_gr_idx_]->ReadyToMC(t))
 		{
 			// ROS_INFO("ready to mc");
-			if (mc_gr_[in_progress_mc_gr_idx_]->SufficientEvents())
+			// TODO: test
+			if (true || mc_gr_[in_progress_mc_gr_idx_]->SufficientEvents())
 			{
 				mc_gr_[in_progress_mc_gr_idx_]->syncClearImages();
 				// ROS_INFO("sufficient events");
@@ -167,6 +191,7 @@ namespace dvxplorer_mc_ceres
 		param_.delta = 1e-4;
 
 		rotations_[1] = -20;
+		rotations_bilinear_[1] = -20;
 
 		// c1 aka sufficient decrease
 		// param_.ftol = 1e-6;

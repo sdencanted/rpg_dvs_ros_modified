@@ -63,7 +63,7 @@ public:
         cudaStreamCreate(&stream_[1]);
         // create pinned memory for x,y,t,image,image dels
 
-        checkCudaErrors(cudaMalloc(&image_, (height_) * (width_) * sizeof(float) * 4));
+        checkCudaErrors(cudaMalloc(&image_and_jacobian_images_buffer_, (height_) * (width_) * sizeof(float) * 4));
         int gridSize = std::min(512, (height * width + 512 - 1) / 512);
         // checkCudaErrors(cudaMallocHost((void **)&contrast_block_sum_, 128 * sizeof(float)));
         // checkCudaErrors(cudaMalloc((void **)&contrast_del_x_block_sum_, 128 * sizeof(float)));
@@ -75,7 +75,7 @@ public:
         checkCudaErrors(cudaMalloc((void **)&contrast_del_z_block_sum_, gridSize * sizeof(float)));
         checkCudaErrors(cudaMalloc(&means_, 4 * sizeof(float)));
 
-        cudaMemsetAsync(image_, 0, (height_) * (width_) * sizeof(float) * 4);
+        cudaMemsetAsync(image_and_jacobian_images_buffer_, 0, (height_) * (width_) * sizeof(float) * 4);
         cudaMemsetAsync(contrast_block_sum_, 0, gridSize * sizeof(float));
         cudaMemsetAsync(contrast_del_x_block_sum_, 0, gridSize * sizeof(float));
         cudaMemsetAsync(contrast_del_y_block_sum_, 0, gridSize * sizeof(float));
@@ -100,8 +100,8 @@ public:
         // cudaStreamCreate(&stream_[0]);
         // cudaStreamCreate(&stream_[1]);
         // create pinned memory for x,y,t,image,image dels
-        // cudaFree(image_);
-        // checkCudaErrors(cudaMalloc(&image_, (height_) * (width_) * sizeof(float) * 4));
+        // cudaFree(image_and_jacobian_images_buffer_);
+        // checkCudaErrors(cudaMalloc(&image_and_jacobian_images_buffer_, (height_) * (width_) * sizeof(float) * 4));
         int gridSize = std::min(512, (height_ * width_ + 512 - 1) / 512);
 
         // cudaFreeHost(contrast_block_sum_);
@@ -115,7 +115,7 @@ public:
         // checkCudaErrors(cudaMalloc((void **)&contrast_del_z_block_sum_, gridSize * sizeof(float)));
         // checkCudaErrors(cudaMalloc(&means_, 4 * sizeof(float)));
 
-        cudaMemset(image_, 0, (height_) * (width_) * sizeof(float) * 4);
+        cudaMemset(image_and_jacobian_images_buffer_, 0, (height_) * (width_) * sizeof(float) * 4);
         // cudaMemset(contrast_block_sum_, 0, gridSize * sizeof(float));
         // cudaMemset(contrast_del_x_block_sum_, 0, gridSize * sizeof(float));
         // cudaMemset(contrast_del_y_block_sum_, 0, gridSize * sizeof(float));
@@ -288,9 +288,9 @@ public:
                   double *residuals,
                   double *gradient) const override
     {
-        fillImage(fx_, fy_, cx_, cy_, height_, width_, num_events_, x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_, parameters[0], parameters[1], parameters[2], contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_,stream_);
+        fillImage(fx_, fy_, cx_, cy_, height_, width_, num_events_, x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_and_jacobian_images_buffer_, parameters[0], parameters[1], parameters[2], contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_,stream_);
 
-        getContrastDelBatchReduce(image_, residuals, gradient, height_, width_,
+        getContrastDelBatchReduce(image_and_jacobian_images_buffer_, residuals, gradient, height_, width_,
                                   contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_, means_, num_events_, stream_);
         // std::cout << "results for " << parameters[0] << " " << parameters[1] << " " << parameters[2] << "\n                                                                ";
         // std::cout << residuals[0] << " " << gradient[0] << " " << gradient[1] << " " << gradient[2] << std::endl;
@@ -340,16 +340,16 @@ public:
     };
     void GenerateImageBilinear(const double *const rotations, uint8_t *output_image, float &contrast)
     {
-        cudaMemsetAsync(image_, 0, height_ * width_ * sizeof(float));
+        cudaMemsetAsync(image_and_jacobian_images_buffer_, 0, height_ * width_ * sizeof(float));
         cudaDeviceSynchronize();
-        fillImageBilinear(fx_, fy_, cx_, cy_, height_, width_, num_events_, x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_, rotations[0], rotations[1], rotations[2], contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_);
+        fillImageBilinear(fx_, fy_, cx_, cy_, height_, width_, num_events_, x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_and_jacobian_images_buffer_, rotations[0], rotations[1], rotations[2], contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_);
         float *image;
         cudaMallocHost(&image, sizeof(float) * height_ * width_);
-        cudaMemcpy(image, image_, height_ * width_ * sizeof(float), cudaMemcpyDefault);
-        float maximum = getMax(image_, height_, width_);
-        cudaMemsetAsync(image_, 0, height_ * width_ * sizeof(float));
-        float mean = thrustMean(image_, height_, width_);
-        // thrust::device_ptr<float> dev_ptr = thrust::device_pointer_cast(image_);
+        cudaMemcpy(image, image_and_jacobian_images_buffer_, height_ * width_ * sizeof(float), cudaMemcpyDefault);
+        float maximum = getMax(image_and_jacobian_images_buffer_, height_, width_);
+        cudaMemsetAsync(image_and_jacobian_images_buffer_, 0, height_ * width_ * sizeof(float));
+        float mean = thrustMean(image_and_jacobian_images_buffer_, height_, width_);
+        // thrust::device_ptr<float> dev_ptr = thrust::device_pointer_cast(image_and_jacobian_images_buffer_);
         // float sum1 = thrust::reduce(dev_ptr, dev_ptr+height_*width_, 0.0, thrust::plus<float>());
         // float mean= sum1/(height_*width_);
 
@@ -368,13 +368,13 @@ public:
     void GenerateUncompensatedImageBilinear(const double *const rotations, uint8_t *output_image, float &contrast)
     {
         cudaDeviceSynchronize();
-        fillImageBilinear(fx_, fy_, cx_, cy_, height_, width_, num_events_, x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_, 0, 0, 0, contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_);
+        fillImageBilinear(fx_, fy_, cx_, cy_, height_, width_, num_events_, x_unprojected_, y_unprojected_, x_prime_, y_prime_, t_, image_and_jacobian_images_buffer_, 0, 0, 0, contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_);
         float *image;
         cudaMallocHost(&image, sizeof(float) * height_ * width_);
-        cudaMemcpy(image, image_, height_ * width_ * sizeof(float), cudaMemcpyDefault);
-        float maximum = getMax(image_, height_, width_);
-        cudaMemsetAsync(image_, 0, height_ * width_ * sizeof(float));
-        float mean = thrustMean(image_, height_, width_);
+        cudaMemcpy(image, image_and_jacobian_images_buffer_, height_ * width_ * sizeof(float), cudaMemcpyDefault);
+        float maximum = getMax(image_and_jacobian_images_buffer_, height_, width_);
+        cudaMemsetAsync(image_and_jacobian_images_buffer_, 0, height_ * width_ * sizeof(float));
+        float mean = thrustMean(image_and_jacobian_images_buffer_, height_, width_);
         float contrast_sum = 0;
         for (int i = 0; i < height_; i++)
         {
@@ -409,7 +409,7 @@ public:
     bool reached_middle_t_ = false;
     bool after_middle_t_ = false;
 
-    float *image_ = NULL;
+    float *image_and_jacobian_images_buffer_ = NULL;
     // float *image_del_theta_x_ = NULL;
     // float *image_del_theta_y_ = NULL;
     // float *image_del_theta_z_ = NULL;

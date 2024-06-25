@@ -80,6 +80,7 @@ namespace dvxplorer_mc_ceres
     LBFGSBSolver<float> solver_;  // New solver class
     
     Eigen::VectorXf rotations_=Eigen::VectorXf::Constant(3,1e-3); 
+    Eigen::VectorXf rotations_bilinear_=Eigen::VectorXf::Constant(3,1e-3); 
     // Bounds
     Eigen::Vector3f lb_ = {-M_PI,-6.0*2*M_PI,-M_PI};
     Eigen::Vector3f ub_ = {M_PI,0,M_PI};
@@ -92,7 +93,8 @@ namespace dvxplorer_mc_ceres
     std::shared_ptr<std::ofstream> outfile_=NULL;
     int height_ = 720;
     int width_ = 1280;
-    float fx_ = 3.22418800e+03, fy_ = 3.21510040e+03, cx_ = (8.80357033e+02), cy_ = (4.17066114e+02) ; // dvx micro
+    float fx_ = 3.22418800e+03, fy_ = 3.21510040e+03, cx_ = (8.80357033e+02), cy_ = (4.17066114e+02) ; // CIL160 EVK4
+    // float fx_ = 8.8005036610065679e+02, fy_ = 8.8005036610065679e+02, cx_ = 6.2889185433397415e+02, cy_ = 3.7053057053804548e+02 ; // CIL042 EVK4
     uint64_t prev_t_=0;
     int events_=0;
     // double rotations_[3] = {1};

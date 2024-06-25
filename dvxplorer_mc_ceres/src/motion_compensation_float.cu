@@ -18,15 +18,15 @@
 #include <cooperative_groups.h>
 #define FULL_MASK 0xffffffff
 // using namespace cooperative_groups;
-float thrustMean(float *image_, int height_, int width_)
+float thrustMean(float *image_and_jacobian_images_buffer_, int height_, int width_)
 {
-    thrust::device_ptr<float> dev_ptr = thrust::device_pointer_cast(image_);
+    thrust::device_ptr<float> dev_ptr = thrust::device_pointer_cast(image_and_jacobian_images_buffer_);
     float sum1 = thrust::reduce(dev_ptr, dev_ptr + height_ * width_, 0.0, thrust::plus<float>());
     return sum1 / (height_ * width_);
 }
-float thrustSum(float *image_, int num_el)
+float thrustSum(float *image_and_jacobian_images_buffer_, int num_el)
 {
-    thrust::device_ptr<float> dev_ptr = thrust::device_pointer_cast(image_);
+    thrust::device_ptr<float> dev_ptr = thrust::device_pointer_cast(image_and_jacobian_images_buffer_);
     float sum1 = thrust::reduce(dev_ptr, dev_ptr + num_el, 0.0, thrust::plus<float>());
     return sum1;
 }
@@ -48,6 +48,38 @@ struct SharedMemory
     }
 };
 
+__global__ void warpEvents_(float fx, float fy, float cx, float cy, int height, int width, int num_events, const float *x_unprojected, const float *y_unprojected, float *x_prime, float *y_prime, float *t, const float rotation_x, const float rotation_y, const float rotation_z, int x_offset, int y_offset)
+{
+    // size_t i = size_t(blockIdx.x * blockDim.x + threadIdx.x);
+    size_t num_threads_in_grid = size_t(blockDim.x * gridDim.x);
+    int total_cx=cx-x_offset;
+    int total_cy=cy-y_offset;
+    // if (i < num_events)
+    for (size_t i = size_t(blockIdx.x * blockDim.x + threadIdx.x); i < num_events; i += num_threads_in_grid)
+    {
+        // calculate theta x,y,z
+        float theta_x_t = rotation_x * t[i];
+        float theta_y_t = rotation_y * t[i];
+        float theta_z_t = rotation_z * t[i];
+
+        // calculate x/y/z_rotated
+        float z_rotated_inv = 1 / (-theta_y_t * x_unprojected[i] + theta_x_t * y_unprojected[i] + 1);
+        float x_rotated_norm = (x_unprojected[i] - theta_z_t * y_unprojected[i] + theta_y_t) * z_rotated_inv;
+        float y_rotated_norm = (theta_z_t * x_unprojected[i] + y_unprojected[i] - theta_x_t) * z_rotated_inv;
+
+        // calculate x_prime and y_prime
+        x_prime[i] = fx * x_rotated_norm +total_cx;
+        y_prime[i] = fy * y_rotated_norm +total_cy;
+    }
+}
+void warpEvents(float fx, float fy, float cx, float cy, int height, int width, int num_events, float *x_unprojected, float *y_unprojected, float *x_prime, float *y_prime, float *t, const float rotation_x, const float rotation_y, const float rotation_z, int x_offset, int y_offset)
+{
+    int blockSize = 512; // The launch configurator returned block size
+    int gridSize;        // The actual grid size needed, based on input size
+    gridSize = (num_events + blockSize - 1) / blockSize;
+    int smemSize = blockSize * sizeof(float);
+    warpEvents_<<<gridSize, blockSize, smemSize>>>(fx, fy, cx, cy, height, width, num_events, x_unprojected, y_unprojected, x_prime, y_prime, t, rotation_x, rotation_y, rotation_z, x_offset, y_offset);
+}
 __global__ void fillImage_(float fx, float fy, float cx, float cy, int height, int width, int num_events, const float *x_unprojected, const float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int x_offset, int y_offset)
 {
 
@@ -58,10 +90,10 @@ __global__ void fillImage_(float fx, float fy, float cx, float cy, int height, i
     float *image_del_x = image + height * width;
     float *image_del_y = image + height * width * 2;
     float *image_del_z = image + height * width * 3;
-    // size_t i = size_t(blockIdx.x * blockDim.x + threadIdx.x);
     size_t num_threads_in_grid = size_t(blockDim.x * gridDim.x);
-    // if (i < num_events)
     float t_mid = (t[num_events - 1] + t[0]) / 2;
+    int total_cx=cx-x_offset;
+    int total_cy=cy-y_offset;
     for (size_t i = size_t(blockIdx.x * blockDim.x + threadIdx.x); i < num_events; i += num_threads_in_grid)
     {
         float t_norm = t[i] - t_mid;
@@ -76,8 +108,8 @@ __global__ void fillImage_(float fx, float fy, float cx, float cy, int height, i
         float y_rotated_norm = (theta_z_t * x_unprojected[i] + y_unprojected[i] - theta_x_t) * z_rotated_inv;
 
         // calculate x_prime and y_prime
-        x_prime[i] = fx * x_rotated_norm + cx;
-        y_prime[i] = fy * y_rotated_norm + cy;
+        x_prime[i] = fx * x_rotated_norm + total_cx;
+        y_prime[i] = fy * y_rotated_norm + total_cy;
         // populate image
         int x_round = round(x_prime[i]);
         int y_round = round(y_prime[i]);
@@ -224,37 +256,26 @@ __global__ void fillImage_(float fx, float fy, float cx, float cy, int height, i
     }
 }
 
-__global__ void warpEvents_(float fx, float fy, float cx, float cy, int height, int width, int num_events, const float *x_unprojected, const float *y_unprojected, float *x_prime, float *y_prime, float *t, const float rotation_x, const float rotation_y, const float rotation_z, int x_offset, int y_offset)
-{
-    // size_t i = size_t(blockIdx.x * blockDim.x + threadIdx.x);
-    size_t num_threads_in_grid = size_t(blockDim.x * gridDim.x);
-    // if (i < num_events)
-    for (size_t i = size_t(blockIdx.x * blockDim.x + threadIdx.x); i < num_events; i += num_threads_in_grid)
-    {
-        // calculate theta x,y,z
-        float theta_x_t = rotation_x * t[i];
-        float theta_y_t = rotation_y * t[i];
-        float theta_z_t = rotation_z * t[i];
 
-        // calculate x/y/z_rotated
-        float z_rotated_inv = 1 / (-theta_y_t * x_unprojected[i] + theta_x_t * y_unprojected[i] + 1);
-        float x_rotated_norm = (x_unprojected[i] - theta_z_t * y_unprojected[i] + theta_y_t) * z_rotated_inv;
-        float y_rotated_norm = (theta_z_t * x_unprojected[i] + y_unprojected[i] - theta_x_t) * z_rotated_inv;
-
-        // calculate x_prime and y_prime
-        x_prime[i] = fx * x_rotated_norm + cx;
-        y_prime[i] = fy * y_rotated_norm + cy;
-    }
-}
-void warpEvents(float fx, float fy, float cx, float cy, int height, int width, int num_events, float *x_unprojected, float *y_unprojected, float *x_prime, float *y_prime, float *t, const float rotation_x, const float rotation_y, const float rotation_z, int x_offset, int y_offset)
+void fillImage(float fx, float fy, float cx, float cy, int height, int width, int num_events, float *x_unprojected, float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, cudaStream_t const *stream, int x_offset, int y_offset)
 {
+    // const int num_sm = 8; // Jetson Orin NX
+    // const int blocks_per_sm = 4;
+    // const int threads_per_block = 128;
     int blockSize = 512; // The launch configurator returned block size
-    int gridSize;        // The actual grid size needed, based on input size
-    gridSize = (num_events + blockSize - 1) / blockSize;
+    // int minGridSize; // The minimum grid size needed to achieve the
+    // maximum occupancy for a full device launch
+    int gridSize; // The actual grid size needed, based on input size
+
+    // cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize,
+    //                                    fillImageBilinear_, 0, 0);
+    // Round up according to array size
+    gridSize = std::min(128, (num_events + blockSize - 1) / blockSize);
+
     int smemSize = blockSize * sizeof(float);
-    warpEvents_<<<gridSize, blockSize, smemSize>>>(fx, fy, cx, cy, height, width, num_events, x_unprojected, y_unprojected, x_prime, y_prime, t, rotation_x, rotation_y, rotation_z, x_offset, y_offset);
+    fillImage_<<<gridSize, blockSize, smemSize, stream[0]>>>(fx, fy, cx, cy, height, width, num_events, x_unprojected, y_unprojected, x_prime, y_prime, t, image, rotation_x, rotation_y, rotation_z, contrast_block_sum, contrast_del_x_block_sum, contrast_del_y_block_sum, contrast_del_z_block_sum, x_offset, y_offset);
 }
-__global__ void fillImageBilinear_(float fx, float fy, float cx, float cy, int height, int width, int num_events, const float *x_unprojected, const float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum)
+__global__ void fillImageBilinear_(float fx, float fy, float cx, float cy, int height, int width, int num_events, const float *x_unprojected, const float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int x_offset, int y_offset)
 {
 
     float image_sum = 0;
@@ -264,15 +285,17 @@ __global__ void fillImageBilinear_(float fx, float fy, float cx, float cy, int h
     float *image_del_x = image + height * width;
     float *image_del_y = image + height * width * 2;
     float *image_del_z = image + height * width * 3;
-    // size_t i = size_t(blockIdx.x * blockDim.x + threadIdx.x);
     size_t num_threads_in_grid = size_t(blockDim.x * gridDim.x);
-    // if (i < num_events)
+    float t_mid = (t[num_events - 1] + t[0]) / 2;
+    int total_cx=cx-x_offset;
+    int total_cy=cy-y_offset;
     for (size_t i = size_t(blockIdx.x * blockDim.x + threadIdx.x); i < num_events; i += num_threads_in_grid)
     {
+        float t_norm = t[i] - t_mid;
         // calculate theta x,y,z
-        float theta_x_t = rotation_x * t[i];
-        float theta_y_t = rotation_y * t[i];
-        float theta_z_t = rotation_z * t[i];
+        float theta_x_t = rotation_x * t_norm;
+        float theta_y_t = rotation_y * t_norm;
+        float theta_z_t = rotation_z * t_norm;
 
         // calculate x/y/z_rotated
         float z_rotated_inv = 1 / (-theta_y_t * x_unprojected[i] + theta_x_t * y_unprojected[i] + 1);
@@ -280,8 +303,8 @@ __global__ void fillImageBilinear_(float fx, float fy, float cx, float cy, int h
         float y_rotated_norm = (theta_z_t * x_unprojected[i] + y_unprojected[i] - theta_x_t) * z_rotated_inv;
 
         // calculate x_prime and y_prime
-        x_prime[i] = fx * x_rotated_norm + cx;
-        y_prime[i] = fy * y_rotated_norm + cy;
+        x_prime[i] = fx * x_rotated_norm + total_cx;
+        y_prime[i] = fy * y_rotated_norm + total_cy;
         // populate image
 
         // Bilinear
@@ -322,14 +345,11 @@ __global__ void fillImageBilinear_(float fx, float fy, float cx, float cy, int h
             float d1x = -d2x;
             float d1y = -d3y;
 
-            // float im1 = (1 - x_diff) * (1 - y_diff);
             float im1 = d3y * d2x;
-            // float im2 = (x_diff) * (1 - y_diff);
             float im2 = d4y * d2x;
-            // float im3 = (1 - x_diff) * (y_diff);
             float im3 = d3y * y_diff;
             float im4 = (x_diff) * (y_diff);
-            image_sum = im1 + im2 + im3 + im4;
+            image_sum += im1 + im2 + im3 + im4;
             atomicAdd(&image[idx1], im1);
             atomicAdd(&image[idx2], im2);
             atomicAdd(&image[idx3], im3);
@@ -338,7 +358,7 @@ __global__ void fillImageBilinear_(float fx, float fy, float cx, float cy, int h
             float dx2 = d2x * del_x_del_theta_x + d2y * del_y_del_theta_x;
             float dx3 = d3x * del_x_del_theta_x + d3y * del_y_del_theta_x;
             float dx4 = d4x * del_x_del_theta_x + d4y * del_y_del_theta_x;
-            image_sum_del_theta_x = dx1 + dx2 + dx3 + dx4;
+            image_sum_del_theta_x += dx1 + dx2 + dx3 + dx4;
 
             atomicAdd(&image_del_x[idx1], dx1);
             atomicAdd(&image_del_x[idx2], dx2);
@@ -348,7 +368,7 @@ __global__ void fillImageBilinear_(float fx, float fy, float cx, float cy, int h
             float dy2 = d2x * del_x_del_theta_y + d2y * del_y_del_theta_y;
             float dy3 = d3x * del_x_del_theta_y + d3y * del_y_del_theta_y;
             float dy4 = d4x * del_x_del_theta_y + d4y * del_y_del_theta_y;
-            image_sum_del_theta_y = dy1 + dy2 + dy3 + dy4;
+            image_sum_del_theta_y += dy1 + dy2 + dy3 + dy4;
             atomicAdd(&image_del_y[idx1], dy1);
             atomicAdd(&image_del_y[idx2], dy2);
             atomicAdd(&image_del_y[idx3], dy3);
@@ -357,7 +377,7 @@ __global__ void fillImageBilinear_(float fx, float fy, float cx, float cy, int h
             float dz2 = d2x * del_x_del_theta_z + d2y * del_y_del_theta_z;
             float dz3 = d3x * del_x_del_theta_z + d3y * del_y_del_theta_z;
             float dz4 = d4x * del_x_del_theta_z + d4y * del_y_del_theta_z;
-            image_sum_del_theta_z = dz1 + dz2 + dz3 + dz4;
+            image_sum_del_theta_z += dz1 + dz2 + dz3 + dz4;
             atomicAdd(&image_del_z[idx1], dz1);
             atomicAdd(&image_del_z[idx2], dz2);
             atomicAdd(&image_del_z[idx3], dz3);
@@ -469,7 +489,7 @@ __global__ void fillImageBilinear_(float fx, float fy, float cx, float cy, int h
         contrast_del_z_block_sum[blockIdx.x] = temp_sum;
     }
 }
-void fillImageBilinear(float fx, float fy, float cx, float cy, int height, int width, int num_events, float *x_unprojected, float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum)
+void fillImageBilinear(float fx, float fy, float cx, float cy, int height, int width, int num_events, float *x_unprojected, float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, cudaStream_t const *stream, int x_offset, int y_offset)
 {
     // const int num_sm = 8; // Jetson Orin NX
     // const int blocks_per_sm = 4;
@@ -485,25 +505,7 @@ void fillImageBilinear(float fx, float fy, float cx, float cy, int height, int w
     gridSize = std::min(128, (num_events + blockSize - 1) / blockSize);
 
     int smemSize = blockSize * sizeof(float);
-    fillImageBilinear_<<<gridSize, blockSize, smemSize>>>(fx, fy, cx, cy, height, width, num_events, x_unprojected, y_unprojected, x_prime, y_prime, t, image, rotation_x, rotation_y, rotation_z, contrast_block_sum, contrast_del_x_block_sum, contrast_del_y_block_sum, contrast_del_z_block_sum);
-}
-void fillImage(float fx, float fy, float cx, float cy, int height, int width, int num_events, float *x_unprojected, float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, cudaStream_t const *stream, int x_offset, int y_offset)
-{
-    // const int num_sm = 8; // Jetson Orin NX
-    // const int blocks_per_sm = 4;
-    // const int threads_per_block = 128;
-    int blockSize = 512; // The launch configurator returned block size
-    // int minGridSize; // The minimum grid size needed to achieve the
-    // maximum occupancy for a full device launch
-    int gridSize; // The actual grid size needed, based on input size
-
-    // cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize,
-    //                                    fillImageBilinear_, 0, 0);
-    // Round up according to array size
-    gridSize = std::min(128, (num_events + blockSize - 1) / blockSize);
-
-    int smemSize = blockSize * sizeof(float);
-    fillImage_<<<gridSize, blockSize, smemSize, stream[0]>>>(fx, fy, cx, cy, height, width, num_events, x_unprojected, y_unprojected, x_prime, y_prime, t, image, rotation_x, rotation_y, rotation_z, contrast_block_sum, contrast_del_x_block_sum, contrast_del_y_block_sum, contrast_del_z_block_sum, x_offset, y_offset);
+    fillImageBilinear_<<<gridSize, blockSize, smemSize, stream[0]>>>(fx, fy, cx, cy, height, width, num_events, x_unprojected, y_unprojected, x_prime, y_prime, t, image, rotation_x, rotation_y, rotation_z, contrast_block_sum, contrast_del_x_block_sum, contrast_del_y_block_sum, contrast_del_z_block_sum,x_offset,y_offset);
 }
 
 __global__ void fillImageKronecker_(int height, int width, int num_events, float *x_prime, float *y_prime, int *image)
@@ -533,6 +535,8 @@ void fillImageKronecker(int height, int width, int num_events, float *x_prime, f
     // cudaMemset(image, 0, height * width * sizeof(uint16_t));
     fillImageKronecker_<<<blocks_per_sm * num_sm, threads_per_block>>>(height, width, num_events, x_prime, y_prime, image);
 }
+
+
 int getMax(int *image, int height, int width)
 {
     int *out;
@@ -546,6 +550,24 @@ int getMax(int *image, int height, int width)
     cudaDeviceSynchronize();
     int maximum;
     cudaMemcpy(&maximum, out, sizeof(int), cudaMemcpyDeviceToHost);
+    cudaFree(out);
+    cudaFree(temp_storage);
+    return maximum;
+}
+
+float getMax(float *image, int height, int width)
+{
+    float *out;
+    cudaMalloc(&out, sizeof(float));
+    size_t temp_cub_temp_size;
+    float *temp_storage = NULL;
+    cub::DeviceReduce::Reduce(temp_storage, temp_cub_temp_size, image, out, (height) * (width), cub::Max(), 0);
+    cudaDeviceSynchronize();
+    cudaMalloc(&temp_storage, temp_cub_temp_size);
+    cub::DeviceReduce::Reduce(temp_storage, temp_cub_temp_size, image, out, (height) * (width), cub::Max(), 0);
+    cudaDeviceSynchronize();
+    float maximum;
+    cudaMemcpy(&maximum, out, sizeof(float), cudaMemcpyDeviceToHost);
     cudaFree(out);
     cudaFree(temp_storage);
     return maximum;
@@ -564,27 +586,33 @@ __global__ void getContrastDelBatchReduceHarder256_(float *image, int num_elemen
     uint16_t tid = threadIdx.x;
     // 85 partial sums to go
     // dump partial sums inside again
-    if (tid < prev_gridsize)
+    // if (tid < prev_gridsize)
+    for(int i=tid; i<prev_gridsize;i+=blockDim.x)
     {
 
         if (blockIdx.x == 0)
         {
-            temp_sum = contrast_block_sum[tid];
+            temp_sum += contrast_block_sum[i];
         }
         else if (blockIdx.x == 1)
         {
-            temp_sum = contrast_del_x_block_sum[tid];
+            temp_sum += contrast_del_x_block_sum[i];
         }
         else if (blockIdx.x == 2)
         {
-            temp_sum = contrast_del_y_block_sum[tid];
+            temp_sum += contrast_del_y_block_sum[i];
         }
         else if (blockIdx.x == 3)
         {
-            temp_sum = contrast_del_z_block_sum[tid];
+            temp_sum += contrast_del_z_block_sum[i]; 
         }
     }
     sdata[tid] = temp_sum;
+    __syncthreads();
+    if ((tid) < 128)
+    {
+        sdata[tid] = temp_sum = temp_sum + sdata[tid + 128];
+    }
     __syncthreads();
     if ((tid) < 64)
     {
@@ -607,6 +635,9 @@ __global__ void getContrastDelBatchReduceHarder256_(float *image, int num_elemen
         if (blockIdx.x < 4)
         {
             mean_volatile[blockIdx.x] = temp_sum / num_elements;
+
+            //TODO: remove after debug done
+            means[blockIdx.x]= temp_sum / num_elements;
         }
     }
     // __syncthreads();
@@ -1188,8 +1219,8 @@ void getContrastDelBatchReduce(float *image,
     // cudaDeviceGetAttribute(&supportsCoopLaunch, cudaDevAttrCooperativeLaunch, dev);
     // std::cout << supportsCoopLaunch << std::endl;
 
-    checkCudaErrors(cudaPeekAtLastError());
     cudaLaunchCooperativeKernel((void *)getContrastDelBatchReduceHarder256_, gridSize, blockSize, kernel_args, smemSize, stream[0]);
+    cudaStreamSynchronize(stream[0]);
     checkCudaErrors(cudaPeekAtLastError());
 
     // START OF DEBUG
@@ -1260,7 +1291,7 @@ void one_step_kernel(uint64_t seed, float *randoms, int numel)
 {
     one_step_kernel_<<<43, 1024>>>(seed, randoms, numel);
 }
-__global__ void rescaleIntensity_(int *image, uint8_t *output_image, float maximum, int numel)
+__global__ void rescaleIntensityInt_(int *image, uint8_t *output_image, int maximum, int numel)
 {
 
     size_t thread_grid_idx = size_t(blockIdx.x * blockDim.x + threadIdx.x);
@@ -1271,7 +1302,7 @@ __global__ void rescaleIntensity_(int *image, uint8_t *output_image, float maxim
         output_image[idx] = (uint8_t)min(255, max(0, (int)(255 * image[idx] / (maximum / 2))));
     }
 }
-void rescaleIntensity(int *image, uint8_t *output_image, float maximum, int height, int width)
+void rescaleIntensity(int *image, uint8_t *output_image, int maximum, int height, int width)
 {
     int blockSize;   // The launch configurator returned block size
     int minGridSize; // The minimum grid size needed to achieve the
@@ -1279,10 +1310,36 @@ void rescaleIntensity(int *image, uint8_t *output_image, float maximum, int heig
     int gridSize;    // The actual grid size needed, based on input size
 
     cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize,
-                                       rescaleIntensity_, 0, 0);
+                                       rescaleIntensityInt_, 0, 0);
     // Round up according to array size
     int numel = height * width;
     gridSize = (numel + blockSize - 1) / blockSize;
-    rescaleIntensity_<<<gridSize, blockSize>>>(image, output_image, maximum, numel);
+    rescaleIntensityInt_<<<gridSize, blockSize>>>(image, output_image, maximum, numel);
+    cudaDeviceSynchronize();
+}
+__global__ void rescaleIntensityFloat_(float *image, uint8_t *output_image, float maximum, int numel)
+{
+
+    size_t thread_grid_idx = size_t(blockIdx.x * blockDim.x + threadIdx.x);
+    size_t num_threads_in_grid = size_t(blockDim.x * gridDim.x);
+
+    for (size_t idx = thread_grid_idx; idx < numel; idx += num_threads_in_grid)
+    {
+        output_image[idx] = (uint8_t)min(255, max(0, (int)(255.0 * image[idx] / (maximum / 2))));
+    }
+}
+void rescaleIntensity(float *image, uint8_t *output_image, float maximum, int height, int width)
+{
+    int blockSize;   // The launch configurator returned block size
+    int minGridSize; // The minimum grid size needed to achieve the
+                     // maximum occupancy for a full device launch
+    int gridSize;    // The actual grid size needed, based on input size
+
+    cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize,
+                                       rescaleIntensityFloat_, 0, 0);
+    // Round up according to array size
+    int numel = height * width;
+    gridSize = (numel + blockSize - 1) / blockSize;
+    rescaleIntensityFloat_<<<gridSize, blockSize>>>(image, output_image, maximum, numel);
     cudaDeviceSynchronize();
 }
