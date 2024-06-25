@@ -139,12 +139,16 @@ public:
 
         getContrastDelBatchReduce(image_and_jacobian_images_buffer_, residuals, gradient, height_, width_,
                                   contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_, means_, std::min(target_num_events_, num_events_), stream_);
-        residuals[0] *= 50;
-        for (int i = 0; i < 3; i++)
-        {
-            gradient[i] *= 50;
-        }
-        // ROS_INFO("results for bilinear iter %d rot %f %f %f con %f grad %f %f %f", iterations, parameters[0], parameters[1], parameters[2], residuals[0], gradient[0], gradient[1], gradient[2]);
+        
+        // artificially inflating gradients
+        // residuals[0] *= 50;
+        // for (int i = 0; i < 3; i++)
+        // {
+        //     gradient[i] *= 50;
+        // }
+        
+        
+        ROS_INFO("results  for bilinear iter %d rot %f %f %f con %f grad %f %f %f", iterations, parameters[0], parameters[1], parameters[2], residuals[0], gradient[0], gradient[1], gradient[2]);
         // std::cout<<"results for iter "<<iterations<< "rot "<<parameters[0]<<" "<<parameters[1]<<" "<<parameters[2]<<" con";
         // std::cout<<residuals[0]<<" grads "<<gradient[0]<<" "<<gradient[1]<<" "<<gradient[2]<<std::endl;
 
