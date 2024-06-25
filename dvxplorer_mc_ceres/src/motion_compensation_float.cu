@@ -130,7 +130,6 @@ __global__ void fillImage_(float fx, float fy, float cx, float cy, int height, i
             {
                 for (int col = max(1, x_round - 2); col < min(width, x_round + 3); col++)
                 {
-                    // TODO: make a LUT for the values here rounded to a certain s.f. and see if there is a speed-up
                     float x_diff = col - x_prime[i];
                     float y_diff = row - y_prime[i];
                     gaussian = exp((-x_diff * x_diff - y_diff * y_diff) / 2);
@@ -636,8 +635,6 @@ __global__ void getContrastDelBatchReduceHarder256_(float *image, int num_elemen
         {
             mean_volatile[blockIdx.x] = temp_sum / num_elements;
 
-            //TODO: remove after debug done
-            means[blockIdx.x]= temp_sum / num_elements;
         }
     }
     // __syncthreads();

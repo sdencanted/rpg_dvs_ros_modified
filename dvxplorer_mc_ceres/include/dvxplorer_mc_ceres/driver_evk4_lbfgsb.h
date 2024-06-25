@@ -102,6 +102,7 @@ namespace dvxplorer_mc_ceres
     int packet_count_ = 0;
     ros::Publisher compensated_image_pub_;
     ros::Publisher velocity_pub_;
+    ros::Publisher velocity_pub_bilinear_;
     std::string ns;
     ros::NodeHandle nh_;
     // float t_new_frame_=-1;

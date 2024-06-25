@@ -124,7 +124,7 @@ public:
         getContrastDelBatchReduce(image_and_jacobian_images_buffer_, residuals, gradient, height_, width_,
                                   contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_, means_, std::min(target_num_events_, num_events_), stream_);
 
-        ROS_INFO("results for iter %d rot %f %f %f con %f grad %f %f %f", iterations,  parameters[0], parameters[1], parameters[2], residuals[0], gradient[0], gradient[1], gradient[2]);
+        // ROS_INFO("results for iter %d rot %f %f %f con %f grad %f %f %f", iterations,  parameters[0], parameters[1], parameters[2], residuals[0], gradient[0], gradient[1], gradient[2]);
         // std::cout<<"results for iter "<<iterations<< "rot "<<parameters[0]<<" "<<parameters[1]<<" "<<parameters[2]<<" con";
         // std::cout<<residuals[0]<<" grads "<<gradient[0]<<" "<<gradient[1]<<" "<<gradient[2]<<std::endl;
 
@@ -148,7 +148,7 @@ public:
         // }
         
         
-        ROS_INFO("results  for bilinear iter %d rot %f %f %f con %f grad %f %f %f", iterations, parameters[0], parameters[1], parameters[2], residuals[0], gradient[0], gradient[1], gradient[2]);
+        // ROS_INFO("results  for bilinear iter %d rot %f %f %f con %f grad %f %f %f", iterations, parameters[0], parameters[1], parameters[2], residuals[0], gradient[0], gradient[1], gradient[2]);
         // std::cout<<"results for iter "<<iterations<< "rot "<<parameters[0]<<" "<<parameters[1]<<" "<<parameters[2]<<" con";
         // std::cout<<residuals[0]<<" grads "<<gradient[0]<<" "<<gradient[1]<<" "<<gradient[2]<<std::endl;
 
@@ -176,10 +176,7 @@ public:
     {
         if (first_event_)
         {
-            first_event_ = false;
-            // modulo to make timestamp round up to nearest 10ms for viewing convenience
-            approx_middle_t_ = t + 10000000 - t % 10000000;
-            approx_last_t_ = approx_middle_t_ + 5000000;
+            SetTimestampGoals(t + 10000000 - t % 10000000);
         }
         else if (!reached_middle_t_ && t > approx_middle_t_)
         {
@@ -238,8 +235,14 @@ public:
         num_events_ = 0;
         reached_middle_t_ = false;
         after_middle_t_ = false;
-        approx_middle_t_ += 1e7; // 10ms
+    }
+    void SetTimestampGoals(int64_t new_approx_middle_t_){
+        approx_middle_t_ = new_approx_middle_t_;
         approx_last_t_ = approx_middle_t_ + 5000000;
+        first_event_=false;
+    }
+    int64_t GetApproxMiddleTs(){
+        return approx_middle_t_;
     }
     void SumImage()
     {
@@ -334,6 +337,7 @@ public:
         {
             grad[i] = gradients[i];
         }
+        iterations++;
         // std::cout<<fx<<std::endl;
         return (float)fx;
     }

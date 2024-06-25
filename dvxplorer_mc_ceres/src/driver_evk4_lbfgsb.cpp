@@ -32,7 +32,7 @@ namespace dvxplorer_mc_ceres
 		{
 			std::unique_lock<std::mutex> lk(mutex_);
 			cv_.wait(lk);
-			ROS_INFO("optimizer woke");
+			// ROS_INFO("optimizer woke");
 			if(ros::isShuttingDown()){
 				break;
 			}
@@ -42,29 +42,34 @@ namespace dvxplorer_mc_ceres
 			ros::Time solver_begin = ros::Time::now();
 			// Initial guess
 			float fx;
-			
+			int gaussian_iters, bilinear_iters;
 			try
 			{
+				mc_gr_[ready_mc_gr_idx_]->iterations=0;
 				solver_.minimize(* mc_gr_[ready_mc_gr_idx_], rotations_, fx, lb_, ub_, 9000);
+				gaussian_iters=mc_gr_[ready_mc_gr_idx_]->iterations;
+
 			}
 			catch (std::exception &e)
 			{
 				std::string error_str = e.what();
 				if (error_str == "the line search step became smaller than the minimum value allowed")
 				{
-					ROS_INFO("<min");
+					// ROS_INFO("<min");
 				}
 				else
 				{
-					ROS_INFO("%s", error_str.c_str());
+					// ROS_INFO("%s", error_str.c_str());
 				}
 			}
 			
 			ros::Time solver_end_gaussian = ros::Time::now();
 			try
 			{
+				mc_gr_[ready_mc_gr_idx_]->iterations=0;
 				mc_gr_[ready_mc_gr_idx_]->setUseBilinear(true);
 				solver_.minimize(* mc_gr_[ready_mc_gr_idx_], rotations_bilinear_, fx, lb_, ub_, 9000);
+				bilinear_iters=mc_gr_[ready_mc_gr_idx_]->iterations;
 				mc_gr_[ready_mc_gr_idx_]->setUseBilinear(false);
 			}
 			catch (std::exception &e)
@@ -72,24 +77,25 @@ namespace dvxplorer_mc_ceres
 				std::string error_str = e.what();
 				if (error_str == "the line search step became smaller than the minimum value allowed")
 				{
-					ROS_INFO("<min");
+					// ROS_INFO("<min");
 				}
 				else
 				{
-					ROS_INFO("%s", error_str.c_str());
+					// ROS_INFO("%s", error_str.c_str());
 				}
 			}
 			ros::Time solver_end = ros::Time::now();
-			ROS_INFO("Rotations gaussian 5x5 : %f %f %f, t=%fms", rotations_[0], rotations_[1], rotations_[2],mc_gr_[ready_mc_gr_idx_]->approx_middle_t_/1e6);
-			ROS_INFO("Rotations bilinear : %f %f %f, t=%fms", rotations_bilinear_[0], rotations_bilinear_[1], rotations_bilinear_[2],mc_gr_[ready_mc_gr_idx_]->approx_middle_t_/1e6);
+			// ROS_INFO("Rotations gaussian 5x5 : %f %f %f, t=%fms, %d iterations", rotations_[0], rotations_[1], rotations_[2],mc_gr_[ready_mc_gr_idx_]->GetApproxMiddleTs()/1e6, gaussian_iters);
+			// ROS_INFO("Rotations bilinear     : %f %f %f, t=%fms, %d iterations", rotations_bilinear_[0], rotations_bilinear_[1], rotations_bilinear_[2],mc_gr_[ready_mc_gr_idx_]->GetApproxMiddleTs()/1e6, bilinear_iters);
 
 
 			// uint8_t image[height_ * width_];
 			float contrast;
 			sensor_msgs::CompressedImage compressed;
 			compressed.format = "jpeg";
-			// TODO: mc_gr_[ready_mc_gr_idx_]->GenerateImage(rotations_.data(), contrast);
-			mc_gr_[ready_mc_gr_idx_]->GenerateUncompensatedImage(contrast);
+			mc_gr_[ready_mc_gr_idx_]->GenerateImage(rotations_.data(), contrast);
+
+			// mc_gr_[ready_mc_gr_idx_]->GenerateUncompensatedImage(contrast);
 			unsigned char *jpeg_buffer = nullptr;
 			uint64_t jpeg_size{};
 			std::string targetFormat = "jpeg";
@@ -117,6 +123,13 @@ namespace dvxplorer_mc_ceres
 			msg.header.stamp.sec = mc_gr_[ready_mc_gr_idx_]->GetMiddleT() / 1e9;
 			msg.header.stamp.nsec = mc_gr_[ready_mc_gr_idx_]->GetMiddleT() - msg.header.stamp.sec * 1e9;
 			velocity_pub_.publish(msg);
+
+			
+			msg.twist.angular.x = rotations_bilinear_[0];
+			msg.twist.angular.y = rotations_bilinear_[1];
+			msg.twist.angular.z = rotations_bilinear_[2];
+			velocity_pub_bilinear_.publish(msg);
+
 			mc_gr_[ready_mc_gr_idx_]->ClearEvents();
 
 			ros::Time whole_end = ros::Time::now();
@@ -125,11 +138,11 @@ namespace dvxplorer_mc_ceres
 			double waiting_duration = (waiting_end - whole_begin_).toSec();
 			double solver_gaussian_duration = (solver_end_gaussian - solver_begin).toSec();
 			double solver_bilinear_duration = (solver_end - solver_end_gaussian).toSec();
-			ROS_INFO("waited for %lf seconds", waiting_duration);
-			ROS_INFO("optimization gaussian took %lf seconds", solver_gaussian_duration);
-			ROS_INFO("optimization bilinear took %lf seconds", solver_bilinear_duration);
-			ROS_INFO("postprocessing took %lf seconds", postprocessing_duration);
-			ROS_INFO("entire callback took %lf seconds", whole_duration);
+			// ROS_INFO("waited for %lf seconds", waiting_duration);
+			// ROS_INFO("optimization gaussian took %lf seconds", solver_gaussian_duration);
+			// ROS_INFO("optimization bilinear took %lf seconds", solver_bilinear_duration);
+			// ROS_INFO("postprocessing took %lf seconds", postprocessing_duration);
+			// ROS_INFO("entire callback took %lf seconds", whole_duration);
 			whole_begin_ = ros::Time::now();
 			lk.unlock();
 		}
@@ -139,8 +152,7 @@ namespace dvxplorer_mc_ceres
 		if (mc_gr_[in_progress_mc_gr_idx_]->ReadyToMC(t))
 		{
 			// ROS_INFO("ready to mc");
-			// TODO: test
-			if (true || mc_gr_[in_progress_mc_gr_idx_]->SufficientEvents())
+			if (mc_gr_[in_progress_mc_gr_idx_]->SufficientEvents())
 			{
 				mc_gr_[in_progress_mc_gr_idx_]->syncClearImages();
 				// ROS_INFO("sufficient events");
@@ -152,11 +164,13 @@ namespace dvxplorer_mc_ceres
 				}
 				cv_.notify_one();
 				mc_gr_[in_progress_mc_gr_idx_]->clearImages();
+				mc_gr_[in_progress_mc_gr_idx_]->SetTimestampGoals(mc_gr_[ready_mc_gr_idx_]->GetApproxMiddleTs()+1e7);
 			}
 			else
 			{
-				ROS_INFO("skipped solver, insufficient events");
+				// ROS_INFO("skipped solver, insufficient events");
 				mc_gr_[in_progress_mc_gr_idx_]->ClearEvents();
+				mc_gr_[in_progress_mc_gr_idx_]->SetTimestampGoals(mc_gr_[in_progress_mc_gr_idx_]->GetApproxMiddleTs()+1e7);
 			}
 		}
 		mc_gr_[in_progress_mc_gr_idx_]->AddData(t, ex, ey);
@@ -209,6 +223,7 @@ namespace dvxplorer_mc_ceres
 
 		compensated_image_pub_ = nh_.advertise<sensor_msgs::CompressedImage>(ns + "/comprensated/image/compressed", 10);
 		velocity_pub_ = nh_.advertise<geometry_msgs::TwistStamped>(ns + "/velocity", 10);
+		velocity_pub_bilinear_ = nh_.advertise<geometry_msgs::TwistStamped>(ns + "/velocity_bilinear", 10);
 		whole_begin_ = ros::Time::now();
 		optimizer_thread_=std::make_shared<std::thread>(&EventProcessor::optimizerLoop, this);
 	}
