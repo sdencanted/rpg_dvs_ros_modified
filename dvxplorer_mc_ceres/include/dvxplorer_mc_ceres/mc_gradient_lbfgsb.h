@@ -139,15 +139,14 @@ public:
 
         getContrastDelBatchReduce(image_and_jacobian_images_buffer_, residuals, gradient, height_, width_,
                                   contrast_block_sum_, contrast_del_x_block_sum_, contrast_del_y_block_sum_, contrast_del_z_block_sum_, means_, std::min(target_num_events_, num_events_), stream_);
-        
+
         // artificially inflating gradients
         // residuals[0] *= 50;
         // for (int i = 0; i < 3; i++)
         // {
         //     gradient[i] *= 50;
         // }
-        
-        
+
         // ROS_INFO("results  for bilinear iter %d rot %f %f %f con %f grad %f %f %f", iterations, parameters[0], parameters[1], parameters[2], residuals[0], gradient[0], gradient[1], gradient[2]);
         // std::cout<<"results for iter "<<iterations<< "rot "<<parameters[0]<<" "<<parameters[1]<<" "<<parameters[2]<<" con";
         // std::cout<<residuals[0]<<" grads "<<gradient[0]<<" "<<gradient[1]<<" "<<gradient[2]<<std::endl;
@@ -163,7 +162,7 @@ public:
     {
         cudaStreamSynchronize(stream_[1]);
     }
-    uint64_t GetMiddleT()
+    int64_t GetMiddleT()
     {
         return approx_middle_t_;
     }
@@ -180,29 +179,33 @@ public:
         }
         else if (!reached_middle_t_ && t > approx_middle_t_)
         {
-            reached_middle_t_ = true;
-            actual_middle_t_ = t;
-            // ROS_INFO("reached middle t at %d idx, approx %ld actual %ld",num_events_,approx_middle_t_,actual_middle_t_);
 
-            // capture first
-            middle_t_first_event_idx_ = num_events_;
+            // too little events
+            if (num_events_ < min_num_events_ / 2)
+            {
+
+                // ROS_INFO("too little events before midpoint: %d/%d", num_events_, min_num_events_ / 2); 
+                ClearEvents();
+                SetTimestampGoals(GetApproxMiddleTs() + (int64_t)10000000);
+                return;
+            }
+            else
+            {
+                reached_middle_t_ = true;
+                actual_middle_t_ = t;
+                // ROS_INFO("reached middle t at %d idx, approx %ld actual %ld",num_events_,approx_middle_t_,actual_middle_t_);
+
+                // capture first
+                middle_t_first_event_idx_ = num_events_;
+            }
         }
         else if (!after_middle_t_ && reached_middle_t_ && t > actual_middle_t_)
         {
             // ROS_INFO("left true middle t %ld at %d idx, t=%ld",actual_middle_t_,num_events_,t);
             after_middle_t_ = true;
-            int middle_t_first_event_idx = num_events_;
-            int middle_idx = (middle_t_first_event_idx + middle_t_first_event_idx_) / 2;
+            int middle_t_last_event_idx = num_events_;
+            int middle_idx = (middle_t_first_event_idx_ + middle_t_last_event_idx) / 2;
 
-            // too little events
-            if (middle_idx < target_num_events_ / 2)
-            {
-
-                // ROS_INFO("too little events before midpoint: %d/%d",middle_idx,target_num_events_/2);
-                // ROS_INFO("few events before midpoint: %d/%d",middle_idx,target_num_events_/2);
-                // ClearEvents();
-                // return;
-            }
             final_event_idx_ = middle_idx + target_num_events_ / 2;
             // final_event_idx_ = (middle_t_first_event_idx_ + num_events_);
         }
@@ -219,7 +222,7 @@ public:
     {
         if (after_middle_t_ && (num_events_ > final_event_idx_ || t >= approx_last_t_))
         {
-
+            last_t_ = t;
             // ROS_INFO("ready to MC, t=%f, idx=%d",t_[(num_events_%target_num_events_) -1] ,num_events_ );
             return true;
         }
@@ -236,12 +239,14 @@ public:
         reached_middle_t_ = false;
         after_middle_t_ = false;
     }
-    void SetTimestampGoals(int64_t new_approx_middle_t_){
+    void SetTimestampGoals(int64_t new_approx_middle_t_)
+    {
         approx_middle_t_ = new_approx_middle_t_;
-        approx_last_t_ = approx_middle_t_ + 5000000;
-        first_event_=false;
+        approx_last_t_ = approx_middle_t_ + (int64_t)5000000;
+        first_event_ = false;
     }
-    int64_t GetApproxMiddleTs(){
+    int64_t GetApproxMiddleTs()
+    {
         return approx_middle_t_;
     }
     void SumImage()
@@ -363,7 +368,7 @@ public:
     int width_;
     int num_events_ = 0;
     int target_num_events_ = 30000;
-    int min_num_events_ = 1000;
+    int min_num_events_ = 10000;
 
     int iterations = 0;
     bool first_event_ = true;
@@ -391,6 +396,7 @@ public:
     int64_t approx_middle_t_ = 0;
     int64_t approx_last_t_ = 0;
     int64_t actual_middle_t_ = 0;
+    int64_t last_t_ = 0;
     int middle_t_first_event_idx_ = 0;
     int final_event_idx_ = 0;
     int x_offset_ = 0;

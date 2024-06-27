@@ -33,7 +33,8 @@ namespace dvxplorer_mc_ceres
 			std::unique_lock<std::mutex> lk(mutex_);
 			cv_.wait(lk);
 			// ROS_INFO("optimizer woke");
-			if(ros::isShuttingDown()){
+			if (ros::isShuttingDown())
+			{
 				break;
 			}
 			ros::Time waiting_end = ros::Time::now();
@@ -45,10 +46,9 @@ namespace dvxplorer_mc_ceres
 			int gaussian_iters, bilinear_iters;
 			try
 			{
-				mc_gr_[ready_mc_gr_idx_]->iterations=0;
-				solver_.minimize(* mc_gr_[ready_mc_gr_idx_], rotations_, fx, lb_, ub_, 9000);
-				gaussian_iters=mc_gr_[ready_mc_gr_idx_]->iterations;
-
+				mc_gr_[ready_mc_gr_idx_]->iterations = 0;
+				solver_.minimize(*mc_gr_[ready_mc_gr_idx_], rotations_, fx, lb_, ub_, 9000);
+				gaussian_iters = mc_gr_[ready_mc_gr_idx_]->iterations;
 			}
 			catch (std::exception &e)
 			{
@@ -62,14 +62,14 @@ namespace dvxplorer_mc_ceres
 					// ROS_INFO("%s", error_str.c_str());
 				}
 			}
-			
+
 			ros::Time solver_end_gaussian = ros::Time::now();
 			try
 			{
-				mc_gr_[ready_mc_gr_idx_]->iterations=0;
+				mc_gr_[ready_mc_gr_idx_]->iterations = 0;
 				mc_gr_[ready_mc_gr_idx_]->setUseBilinear(true);
-				solver_.minimize(* mc_gr_[ready_mc_gr_idx_], rotations_bilinear_, fx, lb_, ub_, 9000);
-				bilinear_iters=mc_gr_[ready_mc_gr_idx_]->iterations;
+				solver_.minimize(*mc_gr_[ready_mc_gr_idx_], rotations_bilinear_, fx, lb_, ub_, 9000);
+				bilinear_iters = mc_gr_[ready_mc_gr_idx_]->iterations;
 				mc_gr_[ready_mc_gr_idx_]->setUseBilinear(false);
 			}
 			catch (std::exception &e)
@@ -87,7 +87,6 @@ namespace dvxplorer_mc_ceres
 			ros::Time solver_end = ros::Time::now();
 			// ROS_INFO("Rotations gaussian 5x5 : %f %f %f, t=%fms, %d iterations", rotations_[0], rotations_[1], rotations_[2],mc_gr_[ready_mc_gr_idx_]->GetApproxMiddleTs()/1e6, gaussian_iters);
 			// ROS_INFO("Rotations bilinear     : %f %f %f, t=%fms, %d iterations", rotations_bilinear_[0], rotations_bilinear_[1], rotations_bilinear_[2],mc_gr_[ready_mc_gr_idx_]->GetApproxMiddleTs()/1e6, bilinear_iters);
-
 
 			// uint8_t image[height_ * width_];
 			float contrast;
@@ -115,8 +114,8 @@ namespace dvxplorer_mc_ceres
 			compressed.data.resize(jpeg_size);
 			std::copy(jpeg_buffer, jpeg_buffer + jpeg_size, compressed.data.begin());
 			tjFree(jpeg_buffer);
-			compensated_image_pub_.publish(compressed);
 			geometry_msgs::TwistStamped msg;
+			compensated_image_pub_.publish(compressed);
 			msg.twist.angular.x = rotations_[0];
 			msg.twist.angular.y = rotations_[1];
 			msg.twist.angular.z = rotations_[2];
@@ -124,12 +123,27 @@ namespace dvxplorer_mc_ceres
 			msg.header.stamp.nsec = mc_gr_[ready_mc_gr_idx_]->GetMiddleT() - msg.header.stamp.sec * 1e9;
 			velocity_pub_.publish(msg);
 
-			
 			msg.twist.angular.x = rotations_bilinear_[0];
 			msg.twist.angular.y = rotations_bilinear_[1];
 			msg.twist.angular.z = rotations_bilinear_[2];
 			velocity_pub_bilinear_.publish(msg);
 
+			if (rotations_[1] > -30)
+			{
+				ROS_INFO("yaw%f<30rad/s, %d events %d final idx, ts %ld", rotations_[1], mc_gr_[ready_mc_gr_idx_]->num_events_, mc_gr_[ready_mc_gr_idx_]->final_event_idx_, mc_gr_[ready_mc_gr_idx_]->GetMiddleT());
+				float first_event = mc_gr_[ready_mc_gr_idx_]->t_[0];
+				if (mc_gr_[ready_mc_gr_idx_]->num_events_ > mc_gr_[ready_mc_gr_idx_]->target_num_events_)
+				{
+					first_event = mc_gr_[ready_mc_gr_idx_]->t_[(mc_gr_[ready_mc_gr_idx_]->num_events_ + 1) % mc_gr_[ready_mc_gr_idx_]->target_num_events_];
+				}
+				ROS_INFO("timestamp comparison last %f first %f actual middle t %ld approx middle t  %ld approx last t  %ld last t %ld",
+						 mc_gr_[ready_mc_gr_idx_]->t_[(mc_gr_[ready_mc_gr_idx_]->num_events_ - 1) % mc_gr_[ready_mc_gr_idx_]->target_num_events_],
+						 first_event,
+						 mc_gr_[ready_mc_gr_idx_]->actual_middle_t_,
+						 mc_gr_[ready_mc_gr_idx_]->approx_middle_t_,
+						 mc_gr_[ready_mc_gr_idx_]->approx_last_t_,
+						 mc_gr_[ready_mc_gr_idx_]->last_t_);
+			}
 			mc_gr_[ready_mc_gr_idx_]->ClearEvents();
 
 			ros::Time whole_end = ros::Time::now();
@@ -149,6 +163,7 @@ namespace dvxplorer_mc_ceres
 	}
 	void EventProcessor::eventCD(uint64_t t, uint16_t ex, uint16_t ey, uint8_t)
 	{
+		total_events_++;
 		if (mc_gr_[in_progress_mc_gr_idx_]->ReadyToMC(t))
 		{
 			// ROS_INFO("ready to mc");
@@ -159,22 +174,22 @@ namespace dvxplorer_mc_ceres
 				{
 					std::lock_guard<std::mutex> lk(mutex_);
 					// ROS_INFO("lock obtained");
-					ready_mc_gr_idx_=in_progress_mc_gr_idx_;
-					in_progress_mc_gr_idx_=(in_progress_mc_gr_idx_+1)%max_mc_gr_idx_;
+					ready_mc_gr_idx_ = in_progress_mc_gr_idx_;
+					in_progress_mc_gr_idx_ = (in_progress_mc_gr_idx_ + 1) % max_mc_gr_idx_;
 				}
 				cv_.notify_one();
 				mc_gr_[in_progress_mc_gr_idx_]->clearImages();
-				mc_gr_[in_progress_mc_gr_idx_]->SetTimestampGoals(mc_gr_[ready_mc_gr_idx_]->GetApproxMiddleTs()+1e7);
+				mc_gr_[in_progress_mc_gr_idx_]->SetTimestampGoals(mc_gr_[ready_mc_gr_idx_]->GetApproxMiddleTs() + (int64_t)10000000);
 			}
 			else
 			{
-				// ROS_INFO("skipped solver, insufficient events");
+				// ROS_INFO("skipped solver for ts %ld, insufficient events %d",mc_gr_[in_progress_mc_gr_idx_]->GetApproxMiddleTs(),mc_gr_[in_progress_mc_gr_idx_]->num_events_);
 				mc_gr_[in_progress_mc_gr_idx_]->ClearEvents();
-				mc_gr_[in_progress_mc_gr_idx_]->SetTimestampGoals(mc_gr_[in_progress_mc_gr_idx_]->GetApproxMiddleTs()+1e7);
+				mc_gr_[in_progress_mc_gr_idx_]->SetTimestampGoals(mc_gr_[in_progress_mc_gr_idx_]->GetApproxMiddleTs() + (int64_t)10000000);
 			}
 		}
 		mc_gr_[in_progress_mc_gr_idx_]->AddData(t, ex, ey);
-		
+
 		if (new_config_)
 		{
 			if (new_height_ != height_ || new_width_ != width_)
@@ -191,7 +206,8 @@ namespace dvxplorer_mc_ceres
 	EventProcessor::EventProcessor(ros::NodeHandle &nh) : tjhandle_(makeTjhandleUniquePtr()), nh_(nh), solver_(LBFGSBSolver<float>(param_))
 	{
 		// google::InitGoogleLogging("mc_ceres");
-		for(int i=0; i<2; i++){
+		for (int i = 0; i < 2; i++)
+		{
 			mc_gr_.push_back(std::make_shared<McGradient>(fx_, fy_, cx_, cy_, height_, width_));
 			mc_gr_.back()->allocate();
 		}
@@ -225,7 +241,7 @@ namespace dvxplorer_mc_ceres
 		velocity_pub_ = nh_.advertise<geometry_msgs::TwistStamped>(ns + "/velocity", 10);
 		velocity_pub_bilinear_ = nh_.advertise<geometry_msgs::TwistStamped>(ns + "/velocity_bilinear", 10);
 		whole_begin_ = ros::Time::now();
-		optimizer_thread_=std::make_shared<std::thread>(&EventProcessor::optimizerLoop, this);
+		optimizer_thread_ = std::make_shared<std::thread>(&EventProcessor::optimizerLoop, this);
 	}
 	void EventProcessor::reconfigure(dvxplorer_mc_ceres::DVXplorer_MC_CeresConfig &config)
 	{
@@ -238,8 +254,10 @@ namespace dvxplorer_mc_ceres
 	EventProcessor::~EventProcessor()
 	{
 		cv_.notify_all();
-  		optimizer_thread_->join();
+		optimizer_thread_->join();
 	}
+
+	uint64_t EventProcessor::getTotalEvents() { return total_events_; }
 
 	DvxplorerMcCeres::DvxplorerMcCeres(ros::NodeHandle &nh, ros::NodeHandle nh_private) : nh_(nh)
 	{
@@ -283,6 +301,8 @@ namespace dvxplorer_mc_ceres
 		// the decode() will trigger callbacks to processor
 		decoder->decode(*msg, processor_.get());
 		// ROS_INFO("got a message");
+
+		// ROS_INFO("total events processed: %ld", processor_->getTotalEvents());
 	}
 
 } // namespace dvxplorer_mc_ceres

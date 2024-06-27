@@ -67,6 +67,7 @@ namespace dvxplorer_mc_ceres
     void rawData(const char *, size_t) override{}; // passthrough of raw data
     void reconfigure(dvxplorer_mc_ceres::DVXplorer_MC_CeresConfig &config);
     void optimizerLoop();
+    uint64_t getTotalEvents();
   private:
     std::shared_ptr<std::thread> optimizer_thread_;
     std::mutex mutex_;
@@ -113,6 +114,7 @@ namespace dvxplorer_mc_ceres
     int new_y_offset_=0;
     bool new_config_=false;
     ros::Time whole_begin_=ros::Time::UNINITIALIZED;
+    uint64_t total_events_=0;
   };
 
   class DvxplorerMcCeres
