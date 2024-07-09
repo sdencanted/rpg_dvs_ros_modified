@@ -2,13 +2,14 @@
 #ifndef MOTION_COMPENSATION_FLOAT_H
 #define MOTION_COMPENSATION_FLOAT_H
 #include <stdint.h>
+#include <utility> //pair 
 // #include <nvtx3/nvtx3.hpp>
-void fillImage(float fx, float fy, float cx, float cy, int height, int width, int num_events, float *x_unprojected, float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z,  float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum,cudaStream_t const *stream, int x_offset=0,int y_offset=0);
+void fillImage(std::pair<int,int>block_grid_sizes,float fx, float fy, float cx, float cy, int height, int width, int num_events, float *x_unprojected, float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z,  float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum,cudaStream_t const *stream, int x_offset=0,int y_offset=0);
+void fillImageCalculate(std::pair<int,int>&block_grid_sizes,int max_num_events);
+void motionCompensateAndFillImageBilinear(std::pair<int,int>block_grid_sizes,float fx, float fy, float cx, float cy, int height, int width, int num_events, float *x_unprojected, float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z,  float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum,cudaStream_t const *stream, int x_offset=0,int y_offset=0);
+void motionCompensateAndFillImageBilinearCalculate(std::pair<int,int>&block_grid_sizes,int max_num_events);
 
-void fillImageBilinear(float fx, float fy, float cx, float cy, int height, int width, int num_events, float *x_unprojected, float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z,  float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum,cudaStream_t const *stream, int x_offset=0,int y_offset=0);
-
-
-void fillImageKronecker(int height, int width, int num_events, float *x_prime, float *y_prime, int *image);
+void fillImageKroneckerNoJacobians(int height, int width, int num_events, float *x_prime, float *y_prime, int *image);
 
 int getMax(int *image, int height, int width);   
 float getMax(float *image, int height, int width);        

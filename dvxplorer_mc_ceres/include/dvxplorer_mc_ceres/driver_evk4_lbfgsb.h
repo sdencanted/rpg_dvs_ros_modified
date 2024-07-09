@@ -29,7 +29,7 @@
 #include <sensor_msgs/CameraInfo.h>
 
 #include "dvxplorer_mc_ceres/mc_gradient_lbfgsb.h"
-
+#include <LBFGSB.h>
 namespace dvxplorer_mc_ceres
 {
 
@@ -94,6 +94,8 @@ namespace dvxplorer_mc_ceres
     std::shared_ptr<std::ofstream> outfile_=NULL;
     int height_ = 720;
     int width_ = 1280;
+    int x_offset_=0;
+    int y_offset_=0;
     float fx_ = 3.22418800e+03, fy_ = 3.21510040e+03, cx_ = (8.80357033e+02), cy_ = (4.17066114e+02) ; // CIL160 EVK4
     // float fx_ = 8.8005036610065679e+02, fy_ = 8.8005036610065679e+02, cx_ = 6.2889185433397415e+02, cy_ = 3.7053057053804548e+02 ; // CIL042 EVK4
     uint64_t prev_t_=0;
@@ -112,7 +114,6 @@ namespace dvxplorer_mc_ceres
     int new_width_ = 1280;
     int new_x_offset_=0;
     int new_y_offset_=0;
-    bool new_config_=false;
     ros::Time whole_begin_=ros::Time::UNINITIALIZED;
     uint64_t total_events_=0;
   };

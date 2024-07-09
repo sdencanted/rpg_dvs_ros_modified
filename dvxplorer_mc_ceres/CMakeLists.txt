@@ -54,7 +54,8 @@ catkin_simple()
 cs_add_executable(dvxplorer_mc_ceres_evk4_lbfgsb
   src/driver_node_evk4_lbfgsb.cpp
   src/driver_evk4_lbfgsb.cpp
-  src/motion_compensation_float.cu 
+  src/motion_compensation.cu 
+  src/mc_gradient_lbfgsb.cu 
 )
 
 # make the nodelet into a library

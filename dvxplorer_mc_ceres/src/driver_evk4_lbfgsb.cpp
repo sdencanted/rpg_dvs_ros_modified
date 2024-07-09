@@ -6,26 +6,6 @@
 namespace dvxplorer_mc_ceres
 {
 
-	// void EventProcessor::eventCD(uint64_t t, uint16_t ex, uint16_t ey, uint8_t)
-	// {
-	// 	events_++;
-	// 	if (prev_t_ == 0)
-	// 	{
-	// 		prev_t_ = t;
-	// 		whole_begin_ = ros::Time::now();
-	// 	}
-	// 	else if (t > prev_t_ + 10 * 1e6)
-	// 	{
-	// 		ros::Time decode_end = ros::Time::now();
-	// 		double decode_duration = (decode_end - whole_begin_).toSec();
-	// 		prev_t_ += 10 * 1e6;
-	// 		ROS_INFO("%d", events_);
-	// 		events_ = 0;
-
-	// 		ROS_INFO("decoding took %lf seconds", decode_duration);
-	// 		whole_begin_ = ros::Time::now();
-	// 	}
-	// }
 	void EventProcessor::optimizerLoop()
 	{
 		while (ros::ok())
@@ -92,7 +72,8 @@ namespace dvxplorer_mc_ceres
 			float contrast;
 			sensor_msgs::CompressedImage compressed;
 			compressed.format = "jpeg";
-			mc_gr_[ready_mc_gr_idx_]->GenerateImage(rotations_.data(), contrast);
+            Eigen::VectorXd rotations_double=rotations_.cast<double>();
+			mc_gr_[ready_mc_gr_idx_]->GenerateImage(rotations_double.data());
 
 			// mc_gr_[ready_mc_gr_idx_]->GenerateUncompensatedImage(contrast);
 			unsigned char *jpeg_buffer = nullptr;
@@ -119,8 +100,8 @@ namespace dvxplorer_mc_ceres
 			msg.twist.angular.x = rotations_[0];
 			msg.twist.angular.y = rotations_[1];
 			msg.twist.angular.z = rotations_[2];
-			msg.header.stamp.sec = mc_gr_[ready_mc_gr_idx_]->GetMiddleT() / 1e9;
-			msg.header.stamp.nsec = mc_gr_[ready_mc_gr_idx_]->GetMiddleT() - msg.header.stamp.sec * 1e9;
+			msg.header.stamp.sec = mc_gr_[ready_mc_gr_idx_]->GetApproxMiddleT() / 1e9;
+			msg.header.stamp.nsec = mc_gr_[ready_mc_gr_idx_]->GetApproxMiddleT() - msg.header.stamp.sec * 1e9;
 			velocity_pub_.publish(msg);
 
 			msg.twist.angular.x = rotations_bilinear_[0];
@@ -128,22 +109,6 @@ namespace dvxplorer_mc_ceres
 			msg.twist.angular.z = rotations_bilinear_[2];
 			velocity_pub_bilinear_.publish(msg);
 
-			if (rotations_[1] > -30)
-			{
-				ROS_INFO("yaw%f<30rad/s, %d events %d final idx, ts %ld", rotations_[1], mc_gr_[ready_mc_gr_idx_]->num_events_, mc_gr_[ready_mc_gr_idx_]->final_event_idx_, mc_gr_[ready_mc_gr_idx_]->GetMiddleT());
-				float first_event = mc_gr_[ready_mc_gr_idx_]->t_[0];
-				if (mc_gr_[ready_mc_gr_idx_]->num_events_ > mc_gr_[ready_mc_gr_idx_]->target_num_events_)
-				{
-					first_event = mc_gr_[ready_mc_gr_idx_]->t_[(mc_gr_[ready_mc_gr_idx_]->num_events_ + 1) % mc_gr_[ready_mc_gr_idx_]->target_num_events_];
-				}
-				ROS_INFO("timestamp comparison last %f first %f actual middle t %ld approx middle t  %ld approx last t  %ld last t %ld",
-						 mc_gr_[ready_mc_gr_idx_]->t_[(mc_gr_[ready_mc_gr_idx_]->num_events_ - 1) % mc_gr_[ready_mc_gr_idx_]->target_num_events_],
-						 first_event,
-						 mc_gr_[ready_mc_gr_idx_]->actual_middle_t_,
-						 mc_gr_[ready_mc_gr_idx_]->approx_middle_t_,
-						 mc_gr_[ready_mc_gr_idx_]->approx_last_t_,
-						 mc_gr_[ready_mc_gr_idx_]->last_t_);
-			}
 			mc_gr_[ready_mc_gr_idx_]->ClearEvents();
 
 			ros::Time whole_end = ros::Time::now();
@@ -178,30 +143,23 @@ namespace dvxplorer_mc_ceres
 					in_progress_mc_gr_idx_ = (in_progress_mc_gr_idx_ + 1) % max_mc_gr_idx_;
 				}
 				cv_.notify_one();
+				
+				if (mc_gr_[in_progress_mc_gr_idx_]->reconfigure_pending)
+				{
+					mc_gr_[in_progress_mc_gr_idx_]->reset(height_, width_, x_offset_, y_offset_);
+				}
 				mc_gr_[in_progress_mc_gr_idx_]->clearImages();
 				mc_gr_[in_progress_mc_gr_idx_]->SetTimestampGoals(mc_gr_[ready_mc_gr_idx_]->GetApproxMiddleTs() + (int64_t)10000000);
 			}
 			else
 			{
-				// ROS_INFO("skipped solver for ts %ld, insufficient events %d",mc_gr_[in_progress_mc_gr_idx_]->GetApproxMiddleTs(),mc_gr_[in_progress_mc_gr_idx_]->num_events_);
+				// ROS_INFO("skipped solver for ts %ld, insufficient events %d",mc_gr_[in_progress_mc_gr_idx_]->GetApproxMiddleTs(),mc_gr_[in_progress_mc_gr_idx_]->getNumEventsToBeConsidered);
 				mc_gr_[in_progress_mc_gr_idx_]->ClearEvents();
 				mc_gr_[in_progress_mc_gr_idx_]->SetTimestampGoals(mc_gr_[in_progress_mc_gr_idx_]->GetApproxMiddleTs() + (int64_t)10000000);
 			}
 		}
 		mc_gr_[in_progress_mc_gr_idx_]->AddData(t, ex, ey);
 
-		if (new_config_)
-		{
-			if (new_height_ != height_ || new_width_ != width_)
-			{
-				height_ = new_height_;
-				width_ = new_width_;
-				int new_x_offset = (1280 - new_width_) / 2;
-				int new_y_offset = (720 - new_height_) / 2;
-				mc_gr_[in_progress_mc_gr_idx_]->reset(height_, width_, new_x_offset, new_y_offset);
-			}
-			new_config_ = false;
-		}
 	}
 	EventProcessor::EventProcessor(ros::NodeHandle &nh) : tjhandle_(makeTjhandleUniquePtr()), nh_(nh), solver_(LBFGSBSolver<float>(param_))
 	{
@@ -245,11 +203,16 @@ namespace dvxplorer_mc_ceres
 	}
 	void EventProcessor::reconfigure(dvxplorer_mc_ceres::DVXplorer_MC_CeresConfig &config)
 	{
-		new_height_ = config.height;
-		new_width_ = config.width;
-		// new_x_offset_ = config.x_offset;
-		// new_y_offset_ = config.y_offset;
-		new_config_ = true;
+		if(config.height!=height_||config.width!=width_){
+			height_ = config.height;
+			width_ = config.width;
+			
+			x_offset_ = (1280 - new_width_) / 2;
+			y_offset_ = (720 - new_height_) / 2;
+			for(int i=0; i<max_mc_gr_idx_;i++){
+				mc_gr_[i]->reconfigure_pending=true;
+			}
+		}
 	}
 	EventProcessor::~EventProcessor()
 	{

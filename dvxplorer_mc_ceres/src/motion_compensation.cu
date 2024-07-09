@@ -1,4 +1,4 @@
-#include "dvxplorer_mc_ceres/motion_compensation_float.h"
+#include "dvxplorer_mc_ceres/motion_compensation.cuh"
 
 #include <cmath>
 #include <algorithm> //for std::max
@@ -16,20 +16,9 @@
 #include <thrust/host_vector.h>
 #include <thrust/device_vector.h>
 #include <cooperative_groups.h>
+
 #define FULL_MASK 0xffffffff
-// using namespace cooperative_groups;
-float thrustMean(float *image_and_jacobian_images_buffer_, int height_, int width_)
-{
-    thrust::device_ptr<float> dev_ptr = thrust::device_pointer_cast(image_and_jacobian_images_buffer_);
-    float sum1 = thrust::reduce(dev_ptr, dev_ptr + height_ * width_, 0.0, thrust::plus<float>());
-    return sum1 / (height_ * width_);
-}
-float thrustSum(float *image_and_jacobian_images_buffer_, int num_el)
-{
-    thrust::device_ptr<float> dev_ptr = thrust::device_pointer_cast(image_and_jacobian_images_buffer_);
-    float sum1 = thrust::reduce(dev_ptr, dev_ptr + num_el, 0.0, thrust::plus<float>());
-    return sum1;
-}
+
 // Utility class used to avoid linker errors with extern
 // unsized shared memory arrays with templated type
 template <class T>
@@ -48,12 +37,12 @@ struct SharedMemory
     }
 };
 
-__global__ void warpEvents_(float fx, float fy, float cx, float cy, int height, int width, int num_events, const float *x_unprojected, const float *y_unprojected, float *x_prime, float *y_prime, float *t, const float rotation_x, const float rotation_y, const float rotation_z, int x_offset, int y_offset)
+__global__ void g_motionCompensate(float fx, float fy, float cx, float cy, int height, int width, int num_events, const float *x_unprojected, const float *y_unprojected, float *x_prime, float *y_prime, float *t, const float rotation_x, const float rotation_y, const float rotation_z, int x_offset, int y_offset)
 {
     // size_t i = size_t(blockIdx.x * blockDim.x + threadIdx.x);
     size_t num_threads_in_grid = size_t(blockDim.x * gridDim.x);
-    int total_cx=cx-x_offset;
-    int total_cy=cy-y_offset;
+    int total_cx = cx - x_offset;
+    int total_cy = cy - y_offset;
     // if (i < num_events)
     for (size_t i = size_t(blockIdx.x * blockDim.x + threadIdx.x); i < num_events; i += num_threads_in_grid)
     {
@@ -68,19 +57,12 @@ __global__ void warpEvents_(float fx, float fy, float cx, float cy, int height, 
         float y_rotated_norm = (theta_z_t * x_unprojected[i] + y_unprojected[i] - theta_x_t) * z_rotated_inv;
 
         // calculate x_prime and y_prime
-        x_prime[i] = fx * x_rotated_norm +total_cx;
-        y_prime[i] = fy * y_rotated_norm +total_cy;
+        x_prime[i] = fx * x_rotated_norm + total_cx;
+        y_prime[i] = fy * y_rotated_norm + total_cy;
     }
 }
-void warpEvents(float fx, float fy, float cx, float cy, int height, int width, int num_events, float *x_unprojected, float *y_unprojected, float *x_prime, float *y_prime, float *t, const float rotation_x, const float rotation_y, const float rotation_z, int x_offset, int y_offset)
-{
-    int blockSize = 512; // The launch configurator returned block size
-    int gridSize;        // The actual grid size needed, based on input size
-    gridSize = (num_events + blockSize - 1) / blockSize;
-    int smemSize = blockSize * sizeof(float);
-    warpEvents_<<<gridSize, blockSize, smemSize>>>(fx, fy, cx, cy, height, width, num_events, x_unprojected, y_unprojected, x_prime, y_prime, t, rotation_x, rotation_y, rotation_z, x_offset, y_offset);
-}
-__global__ void fillImage_(float fx, float fy, float cx, float cy, int height, int width, int num_events, const float *x_unprojected, const float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int x_offset, int y_offset)
+
+__global__ void g_motionCompensateAndFillImageGaussian5(float fx, float fy, float cx, float cy, int height, int width, int num_events, const float *x_unprojected, const float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int x_offset, int y_offset)
 {
 
     float image_sum = 0;
@@ -92,8 +74,8 @@ __global__ void fillImage_(float fx, float fy, float cx, float cy, int height, i
     float *image_del_z = image + height * width * 3;
     size_t num_threads_in_grid = size_t(blockDim.x * gridDim.x);
     float t_mid = (t[num_events - 1] + t[0]) / 2;
-    int total_cx=cx-x_offset;
-    int total_cy=cy-y_offset;
+    int total_cx = cx - x_offset;
+    int total_cy = cy - y_offset;
     for (size_t i = size_t(blockIdx.x * blockDim.x + threadIdx.x); i < num_events; i += num_threads_in_grid)
     {
         float t_norm = t[i] - t_mid;
@@ -255,26 +237,7 @@ __global__ void fillImage_(float fx, float fy, float cx, float cy, int height, i
     }
 }
 
-
-void fillImage(float fx, float fy, float cx, float cy, int height, int width, int num_events, float *x_unprojected, float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, cudaStream_t const *stream, int x_offset, int y_offset)
-{
-    // const int num_sm = 8; // Jetson Orin NX
-    // const int blocks_per_sm = 4;
-    // const int threads_per_block = 128;
-    int blockSize = 512; // The launch configurator returned block size
-    // int minGridSize; // The minimum grid size needed to achieve the
-    // maximum occupancy for a full device launch
-    int gridSize; // The actual grid size needed, based on input size
-
-    // cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize,
-    //                                    fillImageBilinear_, 0, 0);
-    // Round up according to array size
-    gridSize = std::min(128, (num_events + blockSize - 1) / blockSize);
-
-    int smemSize = blockSize * sizeof(float);
-    fillImage_<<<gridSize, blockSize, smemSize, stream[0]>>>(fx, fy, cx, cy, height, width, num_events, x_unprojected, y_unprojected, x_prime, y_prime, t, image, rotation_x, rotation_y, rotation_z, contrast_block_sum, contrast_del_x_block_sum, contrast_del_y_block_sum, contrast_del_z_block_sum, x_offset, y_offset);
-}
-__global__ void fillImageBilinear_(float fx, float fy, float cx, float cy, int height, int width, int num_events, const float *x_unprojected, const float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int x_offset, int y_offset)
+__global__ void g_motionCompensateAndFillImageBilinear(float fx, float fy, float cx, float cy, int height, int width, int num_events, const float *x_unprojected, const float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int x_offset, int y_offset)
 {
 
     float image_sum = 0;
@@ -286,8 +249,8 @@ __global__ void fillImageBilinear_(float fx, float fy, float cx, float cy, int h
     float *image_del_z = image + height * width * 3;
     size_t num_threads_in_grid = size_t(blockDim.x * gridDim.x);
     float t_mid = (t[num_events - 1] + t[0]) / 2;
-    int total_cx=cx-x_offset;
-    int total_cy=cy-y_offset;
+    int total_cx = cx - x_offset;
+    int total_cy = cy - y_offset;
     for (size_t i = size_t(blockIdx.x * blockDim.x + threadIdx.x); i < num_events; i += num_threads_in_grid)
     {
         float t_norm = t[i] - t_mid;
@@ -488,26 +451,8 @@ __global__ void fillImageBilinear_(float fx, float fy, float cx, float cy, int h
         contrast_del_z_block_sum[blockIdx.x] = temp_sum;
     }
 }
-void fillImageBilinear(float fx, float fy, float cx, float cy, int height, int width, int num_events, float *x_unprojected, float *y_unprojected, float *x_prime, float *y_prime, float *t, float *image, const float rotation_x, const float rotation_y, const float rotation_z, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, cudaStream_t const *stream, int x_offset, int y_offset)
-{
-    // const int num_sm = 8; // Jetson Orin NX
-    // const int blocks_per_sm = 4;
-    // const int threads_per_block = 128;
-    int blockSize = 512; // The launch configurator returned block size
-    // int minGridSize; // The minimum grid size needed to achieve the
-    // maximum occupancy for a full device launch
-    int gridSize; // The actual grid size needed, based on input size
 
-    // cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize,
-    //                                    fillImageBilinear_, 0, 0);
-    // Round up according to array size
-    gridSize = std::min(128, (num_events + blockSize - 1) / blockSize);
-
-    int smemSize = blockSize * sizeof(float);
-    fillImageBilinear_<<<gridSize, blockSize, smemSize, stream[0]>>>(fx, fy, cx, cy, height, width, num_events, x_unprojected, y_unprojected, x_prime, y_prime, t, image, rotation_x, rotation_y, rotation_z, contrast_block_sum, contrast_del_x_block_sum, contrast_del_y_block_sum, contrast_del_z_block_sum,x_offset,y_offset);
-}
-
-__global__ void fillImageKronecker_(int height, int width, int num_events, float *x_prime, float *y_prime, int *image)
+__global__ void g_fillImageKroneckerNoJacobians(int height, int width, int num_events, float *x_prime, float *y_prime, int *image)
 {
 
     size_t thread_grid_idx = size_t(blockIdx.x * blockDim.x + threadIdx.x);
@@ -526,54 +471,43 @@ __global__ void fillImageKronecker_(int height, int width, int num_events, float
         }
     }
 }
-void fillImageKronecker(int height, int width, int num_events, float *x_prime, float *y_prime, int *image)
+__global__ void g_fillImageBilinearNoJacobians(int height, int width, int num_events, float *x_prime, float *y_prime, float *image)
 {
-    const int num_sm = 8; // Jetson Orin NX
-    const int blocks_per_sm = 4;
-    const int threads_per_block = 128;
-    // cudaMemset(image, 0, height * width * sizeof(uint16_t));
-    fillImageKronecker_<<<blocks_per_sm * num_sm, threads_per_block>>>(height, width, num_events, x_prime, y_prime, image);
-}
+    size_t thread_grid_idx = size_t(blockIdx.x * blockDim.x + threadIdx.x);
+    size_t num_threads_in_grid = size_t(blockDim.x * gridDim.x);
+    for (size_t i = thread_grid_idx; i < num_events; i += num_threads_in_grid)
+    {
+        // Bilinear
+        int x_trunc = int(x_prime[i]);
+        int y_trunc = int(y_prime[i]);
+        if (x_trunc >= 1 && x_trunc <= width - 2 && y_trunc >= 1 && y_trunc <= height - 2)
+        {
 
+            int idx4 = x_trunc + y_trunc * width;
+            int idx3 = idx4 - 1;
+            int idx2 = idx4 - width;
+            int idx1 = idx2 - 1;
+            float x_diff = x_prime[i] - x_trunc;
+            float y_diff = y_prime[i] - y_trunc;
+            float d2x = 1 - y_diff;
+            float d3y = 1 - x_diff;
+            float d4y = x_diff;
 
-int getMax(int *image, int height, int width)
-{
-    int *out;
-    cudaMalloc(&out, sizeof(int));
-    size_t temp_cub_temp_size;
-    int *temp_storage = NULL;
-    cub::DeviceReduce::Reduce(temp_storage, temp_cub_temp_size, image, out, (height) * (width), cub::Max(), 0);
-    cudaDeviceSynchronize();
-    cudaMalloc(&temp_storage, temp_cub_temp_size);
-    cub::DeviceReduce::Reduce(temp_storage, temp_cub_temp_size, image, out, (height) * (width), cub::Max(), 0);
-    cudaDeviceSynchronize();
-    int maximum;
-    cudaMemcpy(&maximum, out, sizeof(int), cudaMemcpyDeviceToHost);
-    cudaFree(out);
-    cudaFree(temp_storage);
-    return maximum;
-}
-
-float getMax(float *image, int height, int width)
-{
-    float *out;
-    cudaMalloc(&out, sizeof(float));
-    size_t temp_cub_temp_size;
-    float *temp_storage = NULL;
-    cub::DeviceReduce::Reduce(temp_storage, temp_cub_temp_size, image, out, (height) * (width), cub::Max(), 0);
-    cudaDeviceSynchronize();
-    cudaMalloc(&temp_storage, temp_cub_temp_size);
-    cub::DeviceReduce::Reduce(temp_storage, temp_cub_temp_size, image, out, (height) * (width), cub::Max(), 0);
-    cudaDeviceSynchronize();
-    float maximum;
-    cudaMemcpy(&maximum, out, sizeof(float), cudaMemcpyDeviceToHost);
-    cudaFree(out);
-    cudaFree(temp_storage);
-    return maximum;
+            float im1 = d3y * d2x;
+            float im2 = d4y * d2x;
+            float im3 = d3y * y_diff;
+            float im4 = (x_diff) * (y_diff);
+            atomicAdd(&image[idx1], im1);
+            atomicAdd(&image[idx2], im2);
+            atomicAdd(&image[idx3], im3);
+            atomicAdd(&image[idx4], im4);
+        }
+    }
 }
 __device__ volatile float mean_volatile[4] = {0};
-// __global__ void getContrastDelBatchReduceHarder256_(float *image, int num_elements, float *means, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int prev_gridsize, float *imagedebug)
-__global__ void getContrastDelBatchReduceHarder256_(float *image, int num_elements, float *means, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int prev_gridsize)
+
+template <int block_size>
+__global__ void g_calculateAndReduceContrastAndJacobians(float *image, int num_elements, float *means, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int prev_gridsize)
 {
     cooperative_groups::grid_group grid = cooperative_groups::this_grid();
     float *image_del_x = image + num_elements;
@@ -586,7 +520,7 @@ __global__ void getContrastDelBatchReduceHarder256_(float *image, int num_elemen
     // 85 partial sums to go
     // dump partial sums inside again
     // if (tid < prev_gridsize)
-    for(int i=tid; i<prev_gridsize;i+=blockDim.x)
+    for (int i = tid; i < prev_gridsize; i += blockDim.x)
     {
 
         if (blockIdx.x == 0)
@@ -603,21 +537,36 @@ __global__ void getContrastDelBatchReduceHarder256_(float *image, int num_elemen
         }
         else if (blockIdx.x == 3)
         {
-            temp_sum += contrast_del_z_block_sum[i]; 
+            temp_sum += contrast_del_z_block_sum[i];
         }
     }
     sdata[tid] = temp_sum;
     __syncthreads();
-    if ((tid) < 128)
+    if (block_size > 256)
     {
-        sdata[tid] = temp_sum = temp_sum + sdata[tid + 128];
+        // 512 threads per block
+        if ((tid) < 256)
+        {
+            sdata[tid] = temp_sum = temp_sum + sdata[tid + 128];
+        }
+        __syncthreads();
     }
-    __syncthreads();
-    if ((tid) < 64)
+    if (block_size > 128)
     {
-        sdata[tid] = temp_sum = temp_sum + sdata[tid + 64];
+        if ((tid) < 128)
+        {
+            sdata[tid] = temp_sum = temp_sum + sdata[tid + 128];
+        }
+        __syncthreads();
     }
-    __syncthreads();
+    if (block_size > 64)
+    {
+        if ((tid) < 64)
+        {
+            sdata[tid] = temp_sum = temp_sum + sdata[tid + 64];
+        }
+        __syncthreads();
+    }
     if ((tid) < 32)
     {
         // warps of 32 threads are always in sync, no need to sync after this
@@ -634,7 +583,6 @@ __global__ void getContrastDelBatchReduceHarder256_(float *image, int num_elemen
         if (blockIdx.x < 4)
         {
             mean_volatile[blockIdx.x] = temp_sum / num_elements;
-
         }
     }
     // __syncthreads();
@@ -810,210 +758,13 @@ __global__ void getContrastDelBatchReduceHarder256_(float *image, int num_elemen
         contrast_del_z_block_sum[blockIdx.x] = temp_sum;
     }
 }
-__global__ void getContrastDelBatchReduceHarder_(float *image, int num_elements, float *means, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int prev_gridsize)
-{
-    float *image_del_x = image + num_elements;
-    float *image_del_y = image + num_elements * 2;
-    float *image_del_z = image + num_elements * 3;
-    // START COPY
-    float *sdata = SharedMemory<float>();
-    float temp_sum = 0;
-    uint16_t tid = threadIdx.x;
-    // 85 partial sums to go
-    // dump partial sums inside again
-    if (tid < prev_gridsize)
-    {
-
-        if (blockIdx.x == 0)
-        {
-            temp_sum = contrast_block_sum[tid];
-        }
-        else if (blockIdx.x == 1)
-        {
-            temp_sum = contrast_del_x_block_sum[tid];
-        }
-        else if (blockIdx.x == 2)
-        {
-            temp_sum = contrast_del_y_block_sum[tid];
-        }
-        else if (blockIdx.x == 3)
-        {
-            temp_sum = contrast_del_z_block_sum[tid];
-        }
-    }
-    sdata[tid] = temp_sum;
-    __syncthreads();
-    if ((tid) < 64)
-    {
-        sdata[tid] = temp_sum = temp_sum + sdata[tid + 64];
-    }
-    __syncthreads();
-    if ((tid) < 32)
-    {
-        // warps of 32 threads are always in sync, no need to sync after this
-        temp_sum += sdata[tid + 32];
-        // Reduce final warp using shuffle
-        for (uint8_t offset = 32 / 2; offset > 0; offset = offset >> 1)
-        {
-            temp_sum += __shfl_down_sync(FULL_MASK, temp_sum, offset);
-        }
-    }
-    if (tid == 0)
-    {
-        if (blockIdx.x == 0)
-        {
-            means[0] = temp_sum / num_elements;
-        }
-        else if (blockIdx.x == 1)
-        {
-            means[1] = temp_sum / num_elements;
-        }
-        else if (blockIdx.x == 2)
-        {
-            means[2] = temp_sum / num_elements;
-        }
-        else if (blockIdx.x == 3)
-        {
-            means[3] = temp_sum / num_elements;
-        }
-    }
-
-    // END COPY
-    float image_contrast = 0;
-    float image_contrast_del_theta_x = 0;
-    float image_contrast_del_theta_y = 0;
-    float image_contrast_del_theta_z = 0;
-    size_t thread_grid_idx = size_t(blockIdx.x * blockDim.x + threadIdx.x);
-    // size_t num_threads_in_grid = size_t(blockDim.x * gridDim.x);
-    size_t idx = thread_grid_idx;
-    // __syncthreads();
-    auto g = cooperative_groups::this_grid();
-    // auto g = cooperative_groups::this_thread_block();
-    g.sync();
-    float mean = means[0];
-    float xmean = means[1];
-    float ymean = means[2];
-    float zmean = means[3];
-
-    while (idx < num_elements)
-    {
-        float image_norm = image[idx] - mean;
-        float image_norm_x = image_del_x[idx] - xmean;
-        float image_norm_y = image_del_y[idx] - ymean;
-        float image_norm_z = image_del_z[idx] - zmean;
-        image_contrast += image_norm * image_norm;
-        image_contrast_del_theta_x += image_norm_x * image_norm;
-        image_contrast_del_theta_y += image_norm_y * image_norm;
-        image_contrast_del_theta_z += image_norm_z * image_norm;
-        idx += blockDim.x * gridDim.x;
-    }
-
-    // do reduction in shared mem
-
-    // sum up to 128 elements
-
-    // float temp_sum;
-    // image_contrast
-    sdata[tid] = image_contrast;
-    __syncthreads();
-    if (tid < 256)
-        sdata[tid] = image_contrast = image_contrast + sdata[tid + 256];
-    __syncthreads();
-    // store contrast in 0 to 127
-    if (tid < 128)
-        temp_sum = image_contrast + sdata[tid + 128];
-    __syncthreads();
-    // image_contrast_del_theta_x
-    sdata[tid] = image_contrast_del_theta_x;
-    __syncthreads();
-    if (tid < 256)
-        sdata[tid] = image_contrast_del_theta_x = image_contrast_del_theta_x + sdata[tid + 256];
-    __syncthreads();
-    if (tid < 128)
-        sdata[tid] = image_contrast_del_theta_x = image_contrast_del_theta_x + sdata[tid + 128];
-    __syncthreads();
-    // store x in 128 to 255
-    if (tid >= 128 && tid < 256)
-    {
-        temp_sum = sdata[tid - 128];
-    }
-    __syncthreads();
-    // image_contrast_del_theta_y
-    sdata[tid] = image_contrast_del_theta_y;
-    __syncthreads();
-    if (tid < 256)
-        sdata[tid] = image_contrast_del_theta_y = image_contrast_del_theta_y + sdata[tid + 256];
-    __syncthreads();
-    if (tid < 128)
-        sdata[tid] = image_contrast_del_theta_y = image_contrast_del_theta_y + sdata[tid + 128];
-    __syncthreads();
-    // store y in 256 to 383
-    if (tid >= 256 && tid < 384)
-    {
-        temp_sum = sdata[tid - 256];
-    }
-    __syncthreads();
-    // image_contrast_del_theta_z
-    sdata[tid] = image_contrast_del_theta_z;
-    __syncthreads();
-    if (tid < 256)
-        sdata[tid] = image_contrast_del_theta_z = image_contrast_del_theta_z + sdata[tid + 256];
-    __syncthreads();
-    if (tid < 128)
-    {
-        sdata[tid] = image_contrast_del_theta_z = image_contrast_del_theta_z + sdata[tid + 128];
-    }
-    __syncthreads();
-    // store z in 384 to 512
-    if (tid >= 384)
-    {
-        temp_sum = sdata[tid - 384];
-    }
-    __syncthreads();
-    // dump partial sums inside again
-    sdata[tid] = temp_sum;
-    __syncthreads();
-    if ((tid & 0x7F) < 64)
-    {
-        sdata[tid] = temp_sum = temp_sum + sdata[tid + 64];
-    }
-    __syncthreads();
-    if ((tid & 0x7F) < 32)
-    {
-        // warps of 32 threads are always in sync, no need to sync after this
-        temp_sum += sdata[tid + 32];
-        // Reduce final warp using shuffle
-        for (uint8_t offset = 32 / 2; offset > 0; offset = offset >> 1)
-        {
-            temp_sum += __shfl_down_sync(FULL_MASK, temp_sum, offset);
-        }
-    }
-
-    if (tid == 0)
-    {
-        // image_contrast
-        contrast_block_sum[blockIdx.x] = temp_sum;
-    }
-    else if (tid == 128)
-    {
-        // image_contrast_del_theta_x
-        contrast_del_x_block_sum[blockIdx.x] = temp_sum;
-    }
-    else if (tid == 256)
-    {
-        // image_contrast_del_theta_y
-        contrast_del_y_block_sum[blockIdx.x] = temp_sum;
-    }
-    else if (tid == 384)
-    {
-        // image_contrast_del_theta_x
-        contrast_del_z_block_sum[blockIdx.x] = temp_sum;
-    }
-}
-
+template __global__ void g_calculateAndReduceContrastAndJacobians<512>(float *image, int num_elements, float *means, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int prev_gridsize);
+template __global__ void g_calculateAndReduceContrastAndJacobians<256>(float *image, int num_elements, float *means, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int prev_gridsize);
+template __global__ void g_calculateAndReduceContrastAndJacobians<128>(float *image, int num_elements, float *means, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int prev_gridsize);
+template __global__ void g_calculateAndReduceContrastAndJacobians<64>(float *image, int num_elements, float *means, float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int prev_gridsize);
 // 4 blocks x threads
-template <int prev_gridsize>
-__global__ void getContrastDelBatchReduceHarderPt2_(float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum)
+template <int prev_block_size>
+__global__ void g_reduceContrastAndJacobiansPt2(float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int prev_gridsize)
 {
     float *sdata = SharedMemory<float>();
 
@@ -1044,17 +795,17 @@ __global__ void getContrastDelBatchReduceHarderPt2_(float *contrast_block_sum, f
     sdata[tid] = temp_sum;
     __syncthreads();
 
-    if (prev_gridsize > 256 && (tid) < 256)
+    if (prev_block_size > 256 && (tid) < 256)
     {
         sdata[tid] = temp_sum = temp_sum + sdata[tid + 256];
     }
     __syncthreads();
-    if (prev_gridsize > 128 && (tid) < 128)
+    if (prev_block_size > 128 && (tid) < 128)
     {
         sdata[tid] = temp_sum = temp_sum + sdata[tid + 128];
     }
     __syncthreads();
-    if (prev_gridsize > 64 && (tid) < 64)
+    if (prev_block_size > 64 && (tid) < 64)
     {
         sdata[tid] = temp_sum = temp_sum + sdata[tid + 64];
     }
@@ -1089,206 +840,12 @@ __global__ void getContrastDelBatchReduceHarderPt2_(float *contrast_block_sum, f
         }
     }
 }
+template __global__ void g_reduceContrastAndJacobiansPt2<512>(float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int prev_gridsize);
+template __global__ void g_reduceContrastAndJacobiansPt2<256>(float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int prev_gridsize);
+template __global__ void g_reduceContrastAndJacobiansPt2<128>(float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int prev_gridsize);
+template __global__ void g_reduceContrastAndJacobiansPt2<64>(float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int prev_gridsize);
 
-// 4 blocks 128 threads
-__global__ void meanPt2_(float *contrast_block_sum, float *contrast_del_x_block_sum, float *contrast_del_y_block_sum, float *contrast_del_z_block_sum, int num_elements, float *means, int prev_gridsize)
-{
-    float *sdata = SharedMemory<float>();
-    float temp_sum = 0;
-    uint16_t tid = threadIdx.x;
-    // 85 partial sums to go
-    // dump partial sums inside again
-    if (tid < prev_gridsize)
-    {
-
-        if (blockIdx.x == 0)
-        {
-            temp_sum = contrast_block_sum[tid];
-        }
-        else if (blockIdx.x == 1)
-        {
-            temp_sum = contrast_del_x_block_sum[tid];
-        }
-        else if (blockIdx.x == 2)
-        {
-            temp_sum = contrast_del_y_block_sum[tid];
-        }
-        else
-        {
-            temp_sum = contrast_del_z_block_sum[tid];
-        }
-    }
-    sdata[tid] = temp_sum;
-    __syncthreads();
-    if ((tid) < 64)
-    {
-        sdata[tid] = temp_sum = temp_sum + sdata[tid + 64];
-    }
-    __syncthreads();
-    if ((tid) < 32)
-    {
-        // warps of 32 threads are always in sync, no need to sync after this
-        temp_sum += sdata[tid + 32];
-        // Reduce final warp using shuffle
-        for (uint8_t offset = 32 / 2; offset > 0; offset = offset >> 1)
-        {
-            temp_sum += __shfl_down_sync(FULL_MASK, temp_sum, offset);
-        }
-    }
-    if (tid == 0)
-    {
-        if (blockIdx.x == 0)
-        {
-            means[0] = temp_sum / num_elements;
-        }
-        else if (blockIdx.x == 1)
-        {
-            means[1] = temp_sum / num_elements;
-        }
-        else if (blockIdx.x == 2)
-        {
-            means[2] = temp_sum / num_elements;
-        }
-        else
-        {
-            means[3] = temp_sum / num_elements;
-        }
-    }
-}
-
-void getContrastDelBatchReduce(float *image,
-                               double *image_contrast, double *image_del_theta_contrast,
-                               int height, int width,
-                               float *contrast_block_sum,
-                               float *contrast_del_x_block_sum,
-                               float *contrast_del_y_block_sum,
-                               float *contrast_del_z_block_sum,
-                               float *means,
-                               int num_events,
-                               cudaStream_t const *stream)
-{
-    // int dev = 0;
-    // cudaDeviceProp deviceProp;
-    // cudaGetDeviceProperties(&deviceProp, dev);
-    // /// This will launch a grid that can maximally fill the GPU, on the default stream with kernel arguments
-    // int numBlocksPerSm = 0;
-    // // Number of threads my_kernel will be launched with
-    // cudaDeviceProp deviceProp;
-    // cudaGetDeviceProperties(&deviceProp, dev);
-    // cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, getContrastDelBatchReduceHarder_, 512, 0);
-    // std::cout << numBlocksPerSm<<deviceProp.multiProcessorCount << std::endl;
-    // cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, getContrastDelBatchReduceHarder_, 256, 0);
-    // std::cout << numBlocksPerSm<<deviceProp.multiProcessorCount << std::endl;
-    // cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocksPerSm, getContrastDelBatchReduceHarder_, 128, 0);
-    // std::cout << numBlocksPerSm<<deviceProp.multiProcessorCount << std::endl;
-
-    // int blockSize = 512; // The launch configurator returned block size
-    int blockSize = 256; // The launch configurator returned block size
-
-    int prev_blocksize = 512;
-    // int prev_gridsize = (num_events + blockSize - 1) / blockSize;
-    int prev_gridsize = std::min(128, (num_events + blockSize - 1) / prev_blocksize);
-
-    // int gridSize = 85; // The actual grid size needed, based on input size
-    // int gridSize = std::min(512, (height * width + blockSize - 1) / blockSize);
-    // int gridSize = 5 * 8;
-    int gridSize = 6 * 8;
-
-    int smemSize = (blockSize <= 32) ? 2 * blockSize * sizeof(float) : blockSize * sizeof(float);
-
-    // thrust::device_vector<float> imagedebug(height * width * 4);
-    // float *imagedebugptr = thrust::raw_pointer_cast(imagedebug.data());
-    // getContrastDelBatchReduceHarder_<<<gridSize, blockSize, smemSize>>>(image, height * width, means, contrast_block_sum, contrast_del_x_block_sum, contrast_del_y_block_sum, contrast_del_z_block_sum, prev_gridsize);
-    int image_pixels = height * width;
-    void *kernel_args[] = {
-        (void *)&image,
-        (void *)&image_pixels,
-        (void *)&means,
-        (void *)&contrast_block_sum,
-        (void *)&contrast_del_x_block_sum,
-        (void *)&contrast_del_y_block_sum,
-        (void *)&contrast_del_z_block_sum,
-        (void *)&prev_gridsize,
-    };
-    //    (void *)&imagedebugptr};
-    // int dev = 0;
-    // int supportsCoopLaunch = 0;
-    // cudaDeviceGetAttribute(&supportsCoopLaunch, cudaDevAttrCooperativeLaunch, dev);
-    // std::cout << supportsCoopLaunch << std::endl;
-
-    cudaLaunchCooperativeKernel((void *)getContrastDelBatchReduceHarder256_, gridSize, blockSize, kernel_args, smemSize, stream[0]);
-    cudaStreamSynchronize(stream[0]);
-    checkCudaErrors(cudaPeekAtLastError());
-
-    // START OF DEBUG
-    // std::cout << "harder1 sum " << -thrustSum(contrast_block_sum, gridSize) / (height * width)
-    //           << " " << -2 * thrustSum(contrast_del_x_block_sum, gridSize) / (height * width)
-    //           << " " << -2 * thrustSum(contrast_del_y_block_sum, gridSize) / (height * width)
-    //           << " " << -2 * thrustSum(contrast_del_z_block_sum, gridSize) / (height * width)
-    //           << std::endl;
-
-    // END DEBUG
-    checkCudaErrors(cudaPeekAtLastError());
-    // checkCudaErrors(cudaDeviceSynchronize());
-    // checkCudaErrors(cudaDeviceSynchronize());
-    // std::cout << "thrust hardreduce             " << -thrust::reduce(imagedebug.begin(), imagedebug.begin() + height * width, 0.0, thrust::plus<float>()) / (height * width) << " "
-    //           << -2 * thrust::reduce(imagedebug.begin() + height * width, imagedebug.begin() + height * width * 2, 0.0, thrust::plus<float>()) / (height * width) << " "
-    //           << -2 * thrust::reduce(imagedebug.begin() + height * width * 2, imagedebug.begin() + height * width * 3, 0.0, thrust::plus<float>()) / (height * width) << " "
-    //           << -2 * thrust::reduce(imagedebug.begin() + height * width * 3, imagedebug.begin() + height * width * 4, 0.0, thrust::plus<float>()) / (height * width) << " "
-    //           << std::endl;
-    if (height == 180 && width == 240)
-        getContrastDelBatchReduceHarderPt2_<8 * 6><<<4, 128, 128 * sizeof(float), stream[0]>>>(contrast_block_sum, contrast_del_x_block_sum, contrast_del_y_block_sum, contrast_del_z_block_sum);
-    else if (height == 480 && width == 640)
-        getContrastDelBatchReduceHarderPt2_<8 * 6><<<4, 512, 512 * sizeof(float), stream[0]>>>(contrast_block_sum, contrast_del_x_block_sum, contrast_del_y_block_sum, contrast_del_z_block_sum);
-    else if (height == 400 && width == 400)
-        getContrastDelBatchReduceHarderPt2_<8 * 6><<<4, 512, 512 * sizeof(float), stream[0]>>>(contrast_block_sum, contrast_del_x_block_sum, contrast_del_y_block_sum, contrast_del_z_block_sum);
-    else if (height == 720 && width == 1280)
-        getContrastDelBatchReduceHarderPt2_<8 * 6><<<4, 512, 512 * sizeof(float), stream[0]>>>(contrast_block_sum, contrast_del_x_block_sum, contrast_del_y_block_sum, contrast_del_z_block_sum);
-    else
-    {
-        getContrastDelBatchReduceHarderPt2_<8 * 6><<<4, 512, 512 * sizeof(float), stream[0]>>>(contrast_block_sum, contrast_del_x_block_sum, contrast_del_y_block_sum, contrast_del_z_block_sum);
-    }
-
-    // checkCudaErrors(cudaPeekAtLastError());
-    cudaMemsetAsync(image, 0, (height) * (width) * sizeof(float) * 4, stream[1]);
-    // checkCudaErrors(cudaDeviceSynchronize());
-
-    checkCudaErrors(cudaStreamSynchronize(stream[0]));
-    checkCudaErrors(cudaStreamSynchronize(stream[1]));
-    // cudaDeviceSynchronize();
-    {
-        // nvtx3::scoped_range r{"final contrast"};
-        int num_el = height * width;
-        image_contrast[0] = -contrast_block_sum[0] / num_el;
-        image_del_theta_contrast[0] = -2 * contrast_block_sum[1] / num_el;
-        image_del_theta_contrast[1] = -2 * contrast_block_sum[2] / num_el;
-        image_del_theta_contrast[2] = -2 * contrast_block_sum[3] / num_el;
-    }
-}
-
-__device__ float getRandom(uint64_t seed, int tid, int threadCallCount)
-{
-    curandState s;
-    curand_init(seed + tid + threadCallCount, 0, 0, &s);
-    // return curand_uniform(&s);
-    return curand_log_normal(&s, 1e-16, 10.0);
-}
-__global__ void one_step_kernel_(uint64_t seed, float *randoms, int numel)
-{
-    size_t thread_grid_idx = size_t(blockIdx.x * blockDim.x + threadIdx.x);
-    size_t num_threads_in_grid = size_t(blockDim.x * gridDim.x);
-    for (size_t idx = thread_grid_idx; idx < numel; idx += num_threads_in_grid)
-    {
-
-        randoms[idx] = getRandom(seed, idx, 0);
-    }
-}
-
-void one_step_kernel(uint64_t seed, float *randoms, int numel)
-{
-    one_step_kernel_<<<43, 1024>>>(seed, randoms, numel);
-}
-__global__ void rescaleIntensityInt_(int *image, uint8_t *output_image, int maximum, int numel)
+__global__ void g_rescaleIntensityInt(int *image, uint8_t *output_image, int maximum, int numel)
 {
 
     size_t thread_grid_idx = size_t(blockIdx.x * blockDim.x + threadIdx.x);
@@ -1299,22 +856,7 @@ __global__ void rescaleIntensityInt_(int *image, uint8_t *output_image, int maxi
         output_image[idx] = (uint8_t)min(255, max(0, (int)(255 * image[idx] / (maximum / 2))));
     }
 }
-void rescaleIntensity(int *image, uint8_t *output_image, int maximum, int height, int width)
-{
-    int blockSize;   // The launch configurator returned block size
-    int minGridSize; // The minimum grid size needed to achieve the
-                     // maximum occupancy for a full device launch
-    int gridSize;    // The actual grid size needed, based on input size
-
-    cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize,
-                                       rescaleIntensityInt_, 0, 0);
-    // Round up according to array size
-    int numel = height * width;
-    gridSize = (numel + blockSize - 1) / blockSize;
-    rescaleIntensityInt_<<<gridSize, blockSize>>>(image, output_image, maximum, numel);
-    cudaDeviceSynchronize();
-}
-__global__ void rescaleIntensityFloat_(float *image, uint8_t *output_image, float maximum, int numel)
+__global__ void g_rescaleIntensityFloat(float *image, uint8_t *output_image, float maximum, int numel)
 {
 
     size_t thread_grid_idx = size_t(blockIdx.x * blockDim.x + threadIdx.x);
@@ -1324,19 +866,4 @@ __global__ void rescaleIntensityFloat_(float *image, uint8_t *output_image, floa
     {
         output_image[idx] = (uint8_t)min(255, max(0, (int)(255.0 * image[idx] / (maximum / 2))));
     }
-}
-void rescaleIntensity(float *image, uint8_t *output_image, float maximum, int height, int width)
-{
-    int blockSize;   // The launch configurator returned block size
-    int minGridSize; // The minimum grid size needed to achieve the
-                     // maximum occupancy for a full device launch
-    int gridSize;    // The actual grid size needed, based on input size
-
-    cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize,
-                                       rescaleIntensityFloat_, 0, 0);
-    // Round up according to array size
-    int numel = height * width;
-    gridSize = (numel + blockSize - 1) / blockSize;
-    rescaleIntensityFloat_<<<gridSize, blockSize>>>(image, output_image, maximum, numel);
-    cudaDeviceSynchronize();
 }
